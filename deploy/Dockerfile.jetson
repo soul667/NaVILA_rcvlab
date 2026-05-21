@@ -26,7 +26,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY llava ./llava
 
-RUN pip3 install --no-cache-dir -e . && \
+RUN pip3 install --no-cache-dir --upgrade pip setuptools && \
+    pip3 install --no-cache-dir . && \
     pip3 install --no-cache-dir transformers==4.37.2 huggingface_hub
 
 ARG HF_TOKEN=""

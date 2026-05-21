@@ -219,4 +219,8 @@ def prepare_config_for_eval(config: PretrainedConfig, kwargs: dict):
     except AttributeError:
         raise ValueError(f"Invalid configuration! Cannot find vision_tower in config:\n{config}")
 
-    config.model_dtype = kwargs.pop("torch_dtype").__str__()
+    torch_dtype = kwargs.pop("torch_dtype", None)
+    if torch_dtype is not None:
+        config.model_dtype = torch_dtype.__str__()
+    else:
+        config.model_dtype = "torch.float16"

@@ -1,0 +1,34 @@
+## NaVILA + OLI: Single Container Deployment
+## All nodes run in one container to minimize overhead on Jetson
+##
+## Usage:
+##   1. Start RealSense on host: ros2 launch realsense2_camera rs_launch.py
+##   2. docker compose -f docker-compose.oli-single.yml up
+##
+## This is the recommended approach for Jetson (saves ~100-200MB RAM vs multi-container)
+
+services:
+  navila:
+    image: ghcr.io/soul667/navila_rcvlab:cecd23c17e0e943465ebaebcf0c7c65d55de5031-jetson
+    container_name: navila
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./navila_core/config/navila_params.yaml:/ros2_ws/config/navila_params.yaml:ro
+      - ./oli_bridge/config/oli_params.yaml:/ros2_ws/config/oli_params.yaml:ro
+    command: >
+      ros2 launch oli_bridge all.launch.py
+      navila_params_file:=/ros2_ws/config/navila_params.yaml
+      oli_params_file:=/ros2_ws/config/oli_params.yaml
+    network_mode: host
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

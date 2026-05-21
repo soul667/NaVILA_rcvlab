@@ -90,11 +90,16 @@ class NaVilaCore(Node):
             import torch
             from llava.entry import load
 
-            self.model = load(self.model_path, device=self.device)
+            self.get_logger().info(f"CUDA available: {torch.cuda.is_available()}, device count: {torch.cuda.device_count()}")
+            if torch.cuda.is_available():
+                self.get_logger().info(f"GPU: {torch.cuda.get_device_name(0)}")
+
+            self.get_logger().info("Loading model in 8-bit quantization mode...")
+            self.model = load(self.model_path, load_8bit=True)
             self.model.eval()
             self.model_loaded = True
             self.mode = "inference"
-            self.get_logger().info("Model loaded successfully.")
+            self.get_logger().info(f"Model loaded successfully on {self.device}.")
         except Exception as e:
             self.last_error = str(e)
             self.error_count += 1

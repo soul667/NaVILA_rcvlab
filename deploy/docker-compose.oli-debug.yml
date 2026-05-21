@@ -7,8 +7,8 @@
 ##   3. Check logs to see computed velocity commands
 ##   4. When satisfied, switch to docker-compose.oli.yml (set dry_run: false)
 ##
-## First run will install missing Python deps (~2-5 min with GPU for flash-attn).
-## Subsequent runs reuse pip cache so installs are fast.
+## First run installs missing Python deps (uses pip cache volume for speed).
+## To force reinstall: docker compose -f docker-compose.oli-debug.yml down -v
 
 services:
   navila-core:
@@ -20,13 +20,25 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
       - PIP_CACHE_DIR=/pip-cache
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/lib/aarch64-linux-gnu
+      - PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes:
       - ./navila_core/config/navila_params.yaml:/ros2_ws/config/navila_params.yaml:ro
       - ./navila_core:/ros2_ws/src/navila_core
+      - ./create_stubs.sh:/create_stubs.sh:ro
       - pip-cache:/pip-cache
+      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torch:/usr/local/lib/python3.10/dist-packages/torch:ro
+      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torch-2.8.0.dist-info:/usr/local/lib/python3.10/dist-packages/torch-2.8.0.dist-info:ro
+      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torchvision:/usr/local/lib/python3.10/dist-packages/torchvision:ro
+      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torchvision-0.23.0.dist-info:/usr/local/lib/python3.10/dist-packages/torchvision-0.23.0.dist-info:ro
+      - /usr/local/cuda-12.6:/usr/local/cuda:ro
+      - /usr/lib/aarch64-linux-gnu/libcudnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn.so.9:ro
+      - /usr/lib/aarch64-linux-gnu/libcudnn.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn.so.9.3.0:ro
+      - /usr/lib/aarch64-linux-gnu/openblas-pthread/libopenblasp-r0.3.20.so:/usr/lib/aarch64-linux-gnu/libopenblas.so.0:ro
     command: >
       bash -c "
-        pip install loguru 'deepspeed==0.14.4' 'git+https://github.com/bfshi/scaling_on_scales.git' flash-attn --no-build-isolation &&
+        pip install loguru 'deepspeed==0.14.4' 'git+https://github.com/bfshi/scaling_on_scales.git' datasets httpx bitsandbytes &&
+        bash /create_stubs.sh &&
         source /opt/ros/humble/setup.bash &&
         source /ros2_ws/install/setup.bash &&
         cd /ros2_ws &&

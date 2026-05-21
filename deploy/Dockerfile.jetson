@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-image-transport \
     ros-humble-foxglove-bridge \
     python3-pip \
+    python3-opencv \
     python3-colcon-common-extensions \
     git && \
     rm -rf /var/lib/apt/lists/*
@@ -26,18 +27,35 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY llava ./llava
 
-RUN pip3 install --no-cache-dir --upgrade pip setuptools && \
-    pip3 install --no-cache-dir . && \
-    pip3 install --no-cache-dir transformers==4.37.2 huggingface_hub
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip3 install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    torch==2.3.0 \
+    torchvision==0.18.0 && \
+    pip3 install --no-cache-dir \
+    transformers==4.37.2 \
+    "tokenizers>=0.15.2" \
+    sentencepiece==0.1.99 \
+    accelerate==0.27.2 \
+    peft==0.9.0 \
+    einops==0.6.1 \
+    timm==0.9.12 \
+    "numpy==1.26.0" \
+    Pillow \
+    huggingface_hub \
+    "pydantic<2,>=1" && \
+    pip3 install --no-cache-dir --no-deps .
 
 ARG HF_TOKEN=""
 RUN python3 -c "\
+import os; \
 from huggingface_hub import snapshot_download; \
+token = os.environ.get('HF_TOKEN') or None; \
 snapshot_download( \
     repo_id='a8cheng/navila-llama3-8b-8f', \
     local_dir='/models/navila-llama3-8b-8f', \
     local_dir_use_symlinks=False, \
-    token='${HF_TOKEN}' if '${HF_TOKEN}' else None \
+    token=token \
 )"
 
 COPY --from=msg-builder /ros2_ws/install /ros2_ws/install

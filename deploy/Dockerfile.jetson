@@ -1,5 +1,3 @@
-ARG BASE_IMAGE=dustynv/ros:humble-pytorch-l4t-r36.4.0
-
 FROM ros:humble-ros-base AS msg-builder
 
 WORKDIR /ros2_ws/src
@@ -9,7 +7,7 @@ WORKDIR /ros2_ws
 RUN . /opt/ros/humble/setup.sh && \
     colcon build --packages-select navila_msgs --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-FROM ${BASE_IMAGE} AS runtime
+FROM ros:humble-ros-base AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DOMAIN_ID=0
@@ -19,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-cv-bridge \
     ros-humble-image-transport \
     ros-humble-foxglove-bridge \
+    python3-pip \
     python3-colcon-common-extensions \
     git && \
     rm -rf /var/lib/apt/lists/*

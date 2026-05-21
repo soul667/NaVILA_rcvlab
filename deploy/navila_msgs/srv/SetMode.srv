@@ -1,0 +1,5 @@
+# Set system mode (e.g., "inference", "idle", "recording")
+string mode
+---
+bool success
+string message

@@ -1,0 +1,5 @@
+# Set navigation instruction for the VLA model
+string instruction
+---
+bool success
+string message

@@ -33,6 +33,10 @@ NaVILA is a two-level framework that combines VLAs with locomotion skills for na
 - [x] Release YouTube Human Touring dataset. (around June 30th)
 - [x] Release Isaac Sim evaluation, please see [here](https://github.com/yang-zj1026/NaVILA-Bench).
 
+## 🤖 Real Robot Deployment
+
+For deploying NaVILA on real robots (Jetson + ROS2 Humble + Docker), see the **[Deployment Guide](deploy/DEPLOYMENT.md)**.
+
 ## 🚀 Training
 ### Installation
 To build environment for training NaVILA, please run the following:

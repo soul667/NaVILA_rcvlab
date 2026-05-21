@@ -1,0 +1,8 @@
+# NaVILA Core Parameters
+navila_core:
+  ros__parameters:
+    model_path: "/models/navila-llama3-8b-8f"
+    num_frames: 8
+    inference_rate: 2.0
+    device: "cuda:0"
+    instruction: "navigate to the goal"

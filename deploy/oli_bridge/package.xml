@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>oli_bridge</name>
+  <version>0.1.0</version>
+  <description>LimX OLI humanoid robot bridge for NaVILA (WebSocket protocol)</description>
+  <maintainer email="soul667@github.com">soul667</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>navila_msgs</depend>
+
+  <exec_depend>python3-websocket</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

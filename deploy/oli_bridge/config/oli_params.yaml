@@ -1,0 +1,53 @@
+# LimX OLI Humanoid Robot Bridge Parameters
+oli_bridge:
+  ros__parameters:
+    # =========================================================================
+    # NaVILA velocity limits (clamp incoming action before ratio conversion)
+    # =========================================================================
+    max_linear_vel: 0.5    # m/s - max forward/backward speed from NaVILA
+    max_angular_vel: 1.0   # rad/s - max yaw angular speed from NaVILA
+
+    # =========================================================================
+    # Robot physical limits (used for m/s -> ratio conversion)
+    # ratio = velocity / robot_max_velocity
+    # =========================================================================
+    robot_max_linear_vel: 0.8   # m/s - robot max forward speed (ratio=1.0)
+    robot_max_lateral_vel: 0.3  # m/s - robot max lateral speed (ratio=1.0)
+    robot_max_angular_vel: 1.0  # rad/s - robot max yaw speed (ratio=1.0)
+
+    # =========================================================================
+    # WebSocket connection to OLI robot
+    # Connect to robot WiFi (e.g., "HU_D04_xxx", password: 12345678)
+    # Default robot IP: 10.192.1.2, WebSocket port: 5000
+    # =========================================================================
+    robot_ip: "10.192.1.2"
+    ws_port: 5000
+    robot_accid: "HU_D04_01_001"  # 修改为你的机器人序列号 (SN)
+
+    # =========================================================================
+    # Control rate (Hz) - must be >= 30 per robot protocol
+    # =========================================================================
+    send_rate: 30.0
+
+    # =========================================================================
+    # Safety: stop robot if no new NaVILA action received for this duration
+    # =========================================================================
+    action_timeout: 2.0  # seconds
+
+    # =========================================================================
+    # WebSocket reconnect interval (seconds)
+    # =========================================================================
+    reconnect_interval: 3.0
+
+    # =========================================================================
+    # Camera topic (RealSense mounted on robot)
+    # Default: /camera/camera/color/image_raw (from rs_launch.py)
+    # This gets forwarded to /navila/observation/rgb for NaVILA inference
+    # =========================================================================
+    camera_topic: "/camera/camera/color/image_raw"
+
+    # =========================================================================
+    # Robot sensor topics (from OLI robot ROS2 driver, optional)
+    # =========================================================================
+    odom_topic: "/oli/odom"
+    joint_topic: "/oli/joint_states"

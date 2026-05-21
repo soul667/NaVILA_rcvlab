@@ -1,6 +1,6 @@
 services:
   navila-core:
-    image: ghcr.io/soul667/navila-rcvlab:${TAG:-latest-jetson}
+    image: ghcr.io/soul667/navila_rcvlab:${TAG:-latest-jetson}
     container_name: navila_core
     runtime: nvidia
     environment:
@@ -25,7 +25,7 @@ services:
               capabilities: [gpu]
 
   limx-bridge:
-    image: ghcr.io/soul667/navila-rcvlab:${TAG:-latest-jetson}
+    image: ghcr.io/soul667/navila_rcvlab:${TAG:-latest-jetson}
     container_name: limx_bridge
     environment:
       - ROS_DOMAIN_ID=0
@@ -40,7 +40,7 @@ services:
       - navila-core
 
   foxglove-bridge:
-    image: ghcr.io/soul667/navila-rcvlab:${TAG:-latest-jetson}
+    image: ghcr.io/soul667/navila_rcvlab:${TAG:-latest-jetson}
     container_name: foxglove_bridge
     environment:
       - ROS_DOMAIN_ID=0

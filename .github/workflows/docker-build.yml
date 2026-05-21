@@ -29,6 +29,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Lowercase image name
+        id: lower
+        run: echo "image_name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE_NAME: ${{ github.repository }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -53,8 +59,8 @@ jobs:
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-jetson
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-jetson
+            ${{ env.REGISTRY }}/${{ steps.lower.outputs.image_name }}:latest-jetson
+            ${{ env.REGISTRY }}/${{ steps.lower.outputs.image_name }}:${{ github.sha }}-jetson
           build-args: |
             HF_TOKEN=${{ secrets.HF_TOKEN }}
           cache-from: type=gha,scope=jetson

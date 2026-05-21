@@ -6,6 +6,9 @@
 ##   2. docker compose -f docker-compose.oli-debug.yml up
 ##   3. Check logs to see computed velocity commands
 ##   4. When satisfied, switch to docker-compose.oli.yml (set dry_run: false)
+##
+## First run will install missing Python deps (~2-5 min with GPU for flash-attn).
+## Subsequent runs reuse pip cache so installs are fast.
 
 services:
   navila-core:
@@ -16,11 +19,32 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
+      - PIP_CACHE_DIR=/pip-cache
     volumes:
       - ./navila_core/config/navila_params.yaml:/ros2_ws/config/navila_params.yaml:ro
+      - ./navila_core:/ros2_ws/src/navila_core
+      - pip-cache:/pip-cache
     command: >
-      ros2 launch navila_core navila.launch.py
-      params_file:=/ros2_ws/config/navila_params.yaml
+      bash -c "
+        pip install loguru 'deepspeed==0.14.4' 'git+https://github.com/bfshi/scaling_on_scales.git' &&
+        python3 -c \"
+import os, sys
+# Create a stub flash_attn package to skip heavy CUDA compilation
+fa_dir = '/usr/local/lib/python3.10/dist-packages/flash_attn'
+os.makedirs(fa_dir, exist_ok=True)
+init = os.path.join(fa_dir, '__init__.py')
+iface = os.path.join(fa_dir, 'flash_attn_interface.py')
+if not os.path.exists(init):
+    with open(init, 'w') as f: f.write('')
+    with open(iface, 'w') as f: f.write('def flash_attn_varlen_qkvpacked_func(*a, **kw): raise NotImplementedError(\"flash_attn stub\")\nflash_attn_unpadded_qkvpacked_func = flash_attn_varlen_qkvpacked_func\n')
+\" &&
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --packages-select navila_core &&
+        source /ros2_ws/install/setup.bash &&
+        ros2 launch navila_core navila.launch.py params_file:=/ros2_ws/config/navila_params.yaml
+      "
     network_mode: host
     restart: "no"
     deploy:
@@ -38,10 +62,20 @@ services:
       - ROS_DOMAIN_ID=0
     volumes:
       - ./oli_bridge/config/oli_params.yaml:/ros2_ws/config/oli_params.yaml:ro
+      - ./oli_bridge:/ros2_ws/src/oli_bridge
     command: >
-      ros2 launch oli_bridge oli.launch.py
-      params_file:=/ros2_ws/config/oli_params.yaml
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --packages-select oli_bridge &&
+        source /ros2_ws/install/setup.bash &&
+        ros2 launch oli_bridge oli.launch.py params_file:=/ros2_ws/config/oli_params.yaml
+      "
     network_mode: host
     restart: "no"
     depends_on:
       - navila-core
+
+volumes:
+  pip-cache:

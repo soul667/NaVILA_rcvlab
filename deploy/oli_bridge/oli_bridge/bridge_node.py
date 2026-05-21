@@ -88,6 +88,9 @@ class OLiBridge(Node):
         # Reconnect interval
         self.declare_parameter("reconnect_interval", 3.0)  # seconds
 
+        # Debug mode: log commands without actually sending via WebSocket
+        self.declare_parameter("dry_run", False)
+
         # --- Read parameters ---
         self.max_linear_vel = self.get_parameter("max_linear_vel").value
         self.max_angular_vel = self.get_parameter("max_angular_vel").value
@@ -101,6 +104,7 @@ class OLiBridge(Node):
         self.send_rate = self.get_parameter("send_rate").value
         self.action_timeout = self.get_parameter("action_timeout").value
         self.reconnect_interval = self.get_parameter("reconnect_interval").value
+        self.dry_run = self.get_parameter("dry_run").value
 
         camera_topic = self.get_parameter("camera_topic").value
         odom_topic = self.get_parameter("odom_topic").value
@@ -167,13 +171,19 @@ class OLiBridge(Node):
         # =====================================================================
         # WebSocket Connection
         # =====================================================================
-        self._connect_websocket()
+        if not self.dry_run:
+            self._connect_websocket()
 
-        # Start WebSocket receive thread (for response/notify messages)
-        self.ws_recv_thread = threading.Thread(
-            target=self._ws_receive_loop, daemon=True
-        )
-        self.ws_recv_thread.start()
+            # Start WebSocket receive thread (for response/notify messages)
+            self.ws_recv_thread = threading.Thread(
+                target=self._ws_receive_loop, daemon=True
+            )
+            self.ws_recv_thread.start()
+        else:
+            self.get_logger().warn(
+                "*** DRY RUN MODE *** WebSocket disabled. "
+                "Commands will be logged but NOT sent to robot."
+            )
 
         # =====================================================================
         # Timers
@@ -186,7 +196,8 @@ class OLiBridge(Node):
 
         self.get_logger().info(
             f"OLI Bridge initialized | WS: {self.ws_url} | "
-            f"accid: {self.robot_accid} | rate: {self.send_rate}Hz"
+            f"accid: {self.robot_accid} | rate: {self.send_rate}Hz | "
+            f"dry_run: {self.dry_run}"
         )
 
     # =========================================================================
@@ -330,6 +341,7 @@ class OLiBridge(Node):
         """
         Send request_set_walk_vel_sync at 30Hz via WebSocket.
         Implements hold-last-command pattern with timeout safety.
+        In dry_run mode, logs the command instead of sending.
         """
         # Check for action timeout -> stop robot if no recent command
         if time.time() - self.last_action_time > self.action_timeout:
@@ -337,12 +349,6 @@ class OLiBridge(Node):
                 self.cmd_x = 0.0
                 self.cmd_y = 0.0
                 self.cmd_yaw = 0.0
-
-        # Check WebSocket connection
-        if not self.ws_connected:
-            self._reconnect_websocket()
-            if not self.ws_connected:
-                return
 
         # Read cached command
         with self.cmd_lock:
@@ -362,6 +368,25 @@ class OLiBridge(Node):
                 "yaw": round(yaw, 4),
             },
         }
+
+        # --- Dry run: only log, don't send ---
+        if self.dry_run:
+            # Log at reduced rate (every 1s instead of 30Hz) to avoid spam
+            if not hasattr(self, '_dry_run_counter'):
+                self._dry_run_counter = 0
+            self._dry_run_counter += 1
+            if self._dry_run_counter >= int(self.send_rate):  # once per second
+                self._dry_run_counter = 0
+                self.get_logger().info(
+                    f"[DRY RUN] Would send: x={x:.3f} y={y:.3f} yaw={yaw:.3f}"
+                )
+            return
+
+        # --- Real mode: send via WebSocket ---
+        if not self.ws_connected:
+            self._reconnect_websocket()
+            if not self.ws_connected:
+                return
 
         try:
             self.ws.send(json.dumps(msg))
@@ -423,8 +448,11 @@ class OLiBridge(Node):
         """Periodic status logging."""
         with self.cmd_lock:
             x, y, yaw = self.cmd_x, self.cmd_y, self.cmd_yaw
+        mode_str = "DRY RUN" if self.dry_run else (
+            "connected" if self.ws_connected else "DISCONNECTED"
+        )
         self.get_logger().info(
-            f"[Status] WS: {'connected' if self.ws_connected else 'DISCONNECTED'} | "
+            f"[Status] mode: {mode_str} | "
             f"cmd: x={x:.2f} y={y:.2f} yaw={yaw:.2f} | "
             f"errors: {self.error_count}"
         )
@@ -443,17 +471,18 @@ class OLiBridge(Node):
             self.cmd_y = 0.0
             self.cmd_yaw = 0.0
 
-        # Send a few stop commands to ensure robot receives it
-        for _ in range(5):
-            self._send_walk_cmd()
-            time.sleep(0.03)
+        if not self.dry_run:
+            # Send a few stop commands to ensure robot receives it
+            for _ in range(5):
+                self._send_walk_cmd()
+                time.sleep(0.03)
 
-        # Close WebSocket
-        if self.ws:
-            try:
-                self.ws.close()
-            except Exception:
-                pass
+            # Close WebSocket
+            if self.ws:
+                try:
+                    self.ws.close()
+                except Exception:
+                    pass
 
         super().destroy_node()
 

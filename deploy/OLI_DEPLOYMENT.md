@@ -60,6 +60,41 @@ OLI Humanoid Robot
 
 ## Quick Start
 
+### Step 0: Debug Mode (Recommended First)
+
+First validate the entire pipeline **without connecting to the real robot**:
+
+```bash
+cd deploy
+
+# oli_params.yaml already has dry_run: true by default
+
+# Start debug compose (only navila-core + oli-bridge, no foxglove)
+docker compose -f docker-compose.oli-debug.yml up
+
+# In another terminal, check the pipeline:
+# 1. Verify camera images flow through
+ros2 topic hz /navila/observation/rgb
+
+# 2. Set an instruction
+ros2 service call /navila/set_instruction navila_msgs/srv/SetInstruction \
+  "{instruction: 'navigate to the door'}"
+
+# 3. Watch what commands would be sent (logged every 1s)
+docker compose -f docker-compose.oli-debug.yml logs -f oli-bridge
+# You should see: [DRY RUN] Would send: x=0.500 y=0.000 yaw=-0.200
+
+# 4. When satisfied, stop debug
+docker compose -f docker-compose.oli-debug.yml down
+```
+
+### Step 1: Switch to Real Mode
+
+Edit `oli_bridge/config/oli_params.yaml`:
+```yaml
+    dry_run: false  # Now commands will be sent to robot
+```
+
 ### 1. Pull Docker Image
 
 ```bash

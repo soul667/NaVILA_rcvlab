@@ -40,6 +40,13 @@ oli_bridge:
     reconnect_interval: 3.0
 
     # =========================================================================
+    # Debug / Dry Run mode
+    # When true: no WebSocket connection, commands are only logged
+    # Use this to verify the full pipeline without sending to the robot
+    # =========================================================================
+    dry_run: true  # Set to false when ready to control the real robot
+
+    # =========================================================================
     # Camera topic (RealSense mounted on robot)
     # Default: /camera/camera/color/image_raw (from rs_launch.py)
     # This gets forwarded to /navila/observation/rgb for NaVILA inference

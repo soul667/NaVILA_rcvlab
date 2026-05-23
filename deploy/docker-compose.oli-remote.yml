@@ -47,12 +47,13 @@ services:
       - ./fastdds_no_shm.xml:/config/fastdds_no_shm.xml:ro
     command: >
       bash -c "
+        pip install websocket-client &&
         source /opt/ros/humble/setup.bash &&
         source /ros2_ws/install/setup.bash &&
         cd /ros2_ws &&
         colcon build --packages-select oli_bridge &&
         source /ros2_ws/install/setup.bash &&
-        ros2 launch oli_bridge oli.launch.py params_file:=/ros2_ws/config/oli_params.yaml
+        ros2 launch oli_bridge oli.launch.py params_file:=/ros2_ws/config/oli_params.yaml robot_accid:=HU_D04_01_118
       "
     network_mode: host
     restart: "no"

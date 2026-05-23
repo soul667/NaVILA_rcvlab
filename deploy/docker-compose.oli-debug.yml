@@ -1,77 +1,38 @@
-## NaVILA + OLI Debug Mode (dry_run)
-## No WebSocket to robot, just validates the full ROS2 pipeline
+## NaVILA + OLI Debug Mode (Remote Inference, dry_run)
+## Model runs on remote GPU server. OLI bridge in dry_run mode (no WebSocket to robot).
+## Validates the full pipeline: camera -> remote inference -> action (logged only).
 ##
 ## Usage:
-##   1. Start RealSense on host: ros2 launch realsense2_camera rs_launch.py
-##   2. docker compose -f docker-compose.oli-debug.yml up
-##   3. Check logs to see computed velocity commands
-##   4. When satisfied, switch to docker-compose.oli.yml (set dry_run: false)
-##
-## First run installs missing Python deps (uses pip cache volume for speed).
-## To force reinstall: docker compose -f docker-compose.oli-debug.yml down -v
+##   1. Ensure remote inference server is running (docker-compose.server.yml on GPU machine)
+##   2. Start RealSense on host:
+##      FASTRTPS_DEFAULT_PROFILES_FILE=./fastdds_no_shm.xml ros2 launch realsense2_camera rs_launch.py
+##   3. Update server_url in navila_client/config/client_params.yaml
+##   4. docker compose -f docker-compose.oli-debug.yml up
 
 services:
-  navila-core:
+  navila-client:
     image: ghcr.io/soul667/navila_rcvlab:cecd23c17e0e943465ebaebcf0c7c65d55de5031-jetson
     container_name: navila_core
-    runtime: nvidia
     ipc: host
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
-      - PIP_CACHE_DIR=/pip-cache
       - FASTRTPS_DEFAULT_PROFILES_FILE=/config/fastdds_no_shm.xml
-      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/lib/aarch64-linux-gnu
-      - PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes:
-      - ./navila_core/config/navila_params.yaml:/ros2_ws/config/navila_params.yaml:ro
-      - ./navila_core:/ros2_ws/src/navila_core
-      - ./create_stubs.sh:/create_stubs.sh:ro
+      - ./navila_client/config/client_params.yaml:/ros2_ws/config/client_params.yaml:ro
+      - ./navila_client:/ros2_ws/src/navila_client
       - ./fastdds_no_shm.xml:/config/fastdds_no_shm.xml:ro
-      - pip-cache:/pip-cache
-      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torch:/usr/local/lib/python3.10/dist-packages/torch:ro
-      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torch-2.8.0.dist-info:/usr/local/lib/python3.10/dist-packages/torch-2.8.0.dist-info:ro
-      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torchvision:/usr/local/lib/python3.10/dist-packages/torchvision:ro
-      - /home/guest/micromamba/envs/torch/lib/python3.10/site-packages/torchvision-0.23.0.dist-info:/usr/local/lib/python3.10/dist-packages/torchvision-0.23.0.dist-info:ro
-      - /usr/local/cuda-12.6:/usr/local/cuda:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_graph.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_graph.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_graph.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_graph.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_cnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_cnn.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_cnn.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_cnn.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_ops.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_ops.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_ops.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_ops.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_adv.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_adv.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_adv.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_adv.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so.9:ro
-      - /usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so.9.3.0:/usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so.9.3.0:ro
-      - /usr/lib/aarch64-linux-gnu/openblas-pthread/libopenblasp-r0.3.20.so:/usr/lib/aarch64-linux-gnu/libopenblas.so.0:ro
     command: >
       bash -c "
-        pip install loguru 'deepspeed==0.14.4' 'git+https://github.com/bfshi/scaling_on_scales.git' datasets httpx bitsandbytes &&
-        bash /create_stubs.sh &&
+        pip install requests &&
         source /opt/ros/humble/setup.bash &&
         source /ros2_ws/install/setup.bash &&
         cd /ros2_ws &&
-        colcon build --packages-select navila_core &&
+        colcon build --packages-select navila_client &&
         source /ros2_ws/install/setup.bash &&
-        ros2 launch navila_core navila.launch.py params_file:=/ros2_ws/config/navila_params.yaml
+        ros2 launch navila_client client.launch.py params_file:=/ros2_ws/config/client_params.yaml
       "
     network_mode: host
     restart: "no"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
   oli-bridge:
     image: ghcr.io/soul667/navila_rcvlab:cecd23c17e0e943465ebaebcf0c7c65d55de5031-jetson
@@ -96,7 +57,4 @@ services:
     network_mode: host
     restart: "no"
     depends_on:
-      - navila-core
-
-volumes:
-  pip-cache:
+      - navila-client

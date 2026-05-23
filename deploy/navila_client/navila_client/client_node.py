@@ -88,7 +88,7 @@ class NaVilaClient(Node):
     def _check_server(self):
         """Check if inference server is reachable."""
         try:
-            resp = requests.get(f"{self.server_url}/status", timeout=5)
+            resp = requests.get(f"{self.server_url}/health", timeout=5)
             if resp.status_code == 200:
                 status = resp.json()
                 self.server_reachable = status.get("model_loaded", False)
@@ -154,22 +154,43 @@ class NaVilaClient(Node):
             self.last_latency = latency
             self.server_reachable = True
 
+            # Parse server response into action
+            # Server returns: action, raw_output, distance_cm, degree, latency_ms
+            action = result.get("action", "stop")
+            distance_cm = result.get("distance_cm", 0)
+            degree = result.get("degree", 0)
+            raw_output = result.get("raw_output", "")
+
+            # Convert to velocity commands
+            linear_vel = 0.0
+            angular_vel = 0.0
+            goal_reached = False
+
+            if action == "move_forward":
+                linear_vel = min(distance_cm / 100.0, 0.5)
+            elif action == "turn_left":
+                angular_vel = min(degree / 30.0, 1.0)
+            elif action == "turn_right":
+                angular_vel = -min(degree / 30.0, 1.0)
+            elif action == "stop":
+                goal_reached = True
+
             # Publish action
             action_msg = Action()
             action_msg.header.stamp = self.get_clock().now().to_msg()
-            action_msg.command = result["command"]
-            action_msg.linear_velocity = result["linear_velocity"]
-            action_msg.angular_velocity = result["angular_velocity"]
-            action_msg.confidence = result["confidence"]
-            action_msg.reasoning = result["reasoning"]
-            action_msg.goal_reached = result["goal_reached"]
+            action_msg.command = action
+            action_msg.linear_velocity = linear_vel
+            action_msg.angular_velocity = angular_vel
+            action_msg.confidence = 0.9 if action == "stop" else 0.8
+            action_msg.reasoning = raw_output
+            action_msg.goal_reached = goal_reached
 
             self.action_pub.publish(action_msg)
             self.inference_count += 1
 
             self.get_logger().info(
-                f"Action: {result['command']} | lin={result['linear_velocity']:.2f} "
-                f"ang={result['angular_velocity']:.2f} | latency={latency:.0f}ms "
+                f"Action: {action} | lin={linear_vel:.2f} "
+                f"ang={angular_vel:.2f} | latency={latency:.0f}ms "
                 f"(server={result.get('latency_ms', 0):.0f}ms)"
             )
 

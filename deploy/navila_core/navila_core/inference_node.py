@@ -1,9 +1,14 @@
-"""NaVILA Core - ROS2 VLA Inference Node."""
+"""NaVILA Core - ROS2 VLA Inference Node (Remote API Mode).
 
+Instead of running inference locally on Jetson, this node sends frames
+to a remote GPU server via HTTP API and receives navigation actions.
+"""
+
+import base64
+import io
 import time
 from collections import deque
 from threading import Lock
-from typing import Optional
 
 import rclpy
 from cv_bridge import CvBridge
@@ -15,29 +20,38 @@ from std_msgs.msg import String
 from navila_msgs.msg import Action, Observation, RobotState, SystemStatus
 from navila_msgs.srv import SetInstruction, SetMode
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 
 class NaVilaCore(Node):
-    """Main VLA inference node. Subscribes to camera observations, publishes navigation actions."""
+    """VLA inference node (remote API client mode).
+
+    Buffers camera frames and sends them to a remote inference server.
+    Publishes navigation actions received from the server.
+    """
 
     def __init__(self):
         super().__init__("navila_core")
 
         # Parameters
-        self.declare_parameter("model_path", "a8cheng/navila-llama3-8b-8f")
+        self.declare_parameter("server_url", "http://192.168.1.100:8000")
         self.declare_parameter("num_frames", 8)
         self.declare_parameter("inference_rate", 2.0)  # Hz
-        self.declare_parameter("device", "cuda:0")
         self.declare_parameter("instruction", "navigate to the goal")
+        self.declare_parameter("jpeg_quality", 85)  # JPEG compression quality
+        self.declare_parameter("request_timeout", 10.0)  # seconds
 
-        self.model_path = self.get_parameter("model_path").value
+        self.server_url = self.get_parameter("server_url").value
         self.num_frames = self.get_parameter("num_frames").value
         self.inference_rate = self.get_parameter("inference_rate").value
-        self.device = self.get_parameter("device").value
         self.instruction = self.get_parameter("instruction").value
+        self.jpeg_quality = self.get_parameter("jpeg_quality").value
+        self.request_timeout = self.get_parameter("request_timeout").value
 
         # State
-        self.model = None
-        self.model_loaded = False
         self.mode = "idle"  # idle, inference, recording
         self.frame_buffer = deque(maxlen=self.num_frames)
         self.lock = Lock()
@@ -46,6 +60,7 @@ class NaVilaCore(Node):
         self.last_latency = 0.0
         self.error_count = 0
         self.last_error = ""
+        self.server_connected = False
 
         # QoS for camera (best effort, keep last)
         camera_qos = QoSProfile(
@@ -80,30 +95,37 @@ class NaVilaCore(Node):
         )
         self.status_timer = self.create_timer(1.0, self._publish_status)
 
-        # Load model in background
-        self.get_logger().info(f"Loading model from {self.model_path}...")
-        self._load_model()
+        # Check server connectivity
+        self._check_server()
 
-    def _load_model(self):
-        """Load the NaVILA model."""
+    def _check_server(self):
+        """Check if the remote inference server is reachable."""
+        if requests is None:
+            self.get_logger().error("requests library not installed! pip install requests")
+            return
+
         try:
-            import torch
-            from llava.entry import load
-
-            self.get_logger().info(f"CUDA available: {torch.cuda.is_available()}, device count: {torch.cuda.device_count()}")
-            if torch.cuda.is_available():
-                self.get_logger().info(f"GPU: {torch.cuda.get_device_name(0)}")
-
-            self.get_logger().info("Loading model in 8-bit quantization mode...")
-            self.model = load(self.model_path, load_8bit=True)
-            self.model.eval()
-            self.model_loaded = True
-            self.mode = "inference"
-            self.get_logger().info(f"Model loaded successfully on {self.device}.")
+            resp = requests.get(
+                f"{self.server_url}/health",
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                self.server_connected = data.get("model_loaded", False)
+                if self.server_connected:
+                    self.mode = "inference"
+                    self.get_logger().info(
+                        f"Server connected: {self.server_url} | "
+                        f"GPU: {data.get('gpu_name')} | "
+                        f"VRAM: {data.get('gpu_memory_used_mb')}MB"
+                    )
+                else:
+                    self.get_logger().warn("Server reachable but model not loaded yet")
+            else:
+                self.get_logger().warn(f"Server returned status {resp.status_code}")
         except Exception as e:
-            self.last_error = str(e)
-            self.error_count += 1
-            self.get_logger().error(f"Failed to load model: {e}")
+            self.get_logger().warn(f"Cannot reach server at {self.server_url}: {e}")
+            self.server_connected = False
 
     def _rgb_callback(self, msg: Image):
         """Buffer incoming RGB frames."""
@@ -121,8 +143,8 @@ class NaVilaCore(Node):
         pass
 
     def _inference_loop(self):
-        """Run VLA inference at fixed rate."""
-        if self.mode != "inference" or not self.model_loaded:
+        """Send frames to remote server for inference at fixed rate."""
+        if self.mode != "inference":
             return
 
         with self.lock:
@@ -130,67 +152,94 @@ class NaVilaCore(Node):
                 return
             frames = list(self.frame_buffer)
 
+        # Retry server connection if needed
+        if not self.server_connected:
+            self._check_server()
+            if not self.server_connected:
+                return
+
         try:
-            import torch
-            import numpy as np
-            from llava.conversation import auto_set_conversation_mode
-            from llava.mm_utils import process_images, tokenizer_image_token
             from PIL import Image as PILImage
 
             start_time = time.time()
 
-            # Convert frames to PIL images
-            pil_frames = [PILImage.fromarray(f["rgb"]) for f in frames]
+            # Encode frames as base64 JPEG
+            b64_frames = []
+            for f in frames:
+                pil_img = PILImage.fromarray(f["rgb"])
+                buf = io.BytesIO()
+                pil_img.save(buf, format="JPEG", quality=self.jpeg_quality)
+                b64_frames.append(base64.b64encode(buf.getvalue()).decode("ascii"))
 
-            # Run inference (simplified - actual implementation depends on model API)
-            with torch.no_grad():
-                # The actual inference call will depend on the model's API
-                # This is a placeholder for the real inference pipeline
-                output = self._run_model_inference(pil_frames, self.instruction)
+            # Call remote API
+            payload = {
+                "frames": b64_frames,
+                "instruction": self.instruction,
+            }
 
-            latency = (time.time() - start_time) * 1000
-            self.last_latency = latency
+            resp = requests.post(
+                f"{self.server_url}/infer",
+                json=payload,
+                timeout=self.request_timeout,
+            )
 
-            # Publish action
+            if resp.status_code != 200:
+                raise RuntimeError(f"Server error {resp.status_code}: {resp.text}")
+
+            result = resp.json()
+
+            total_latency = (time.time() - start_time) * 1000
+            self.last_latency = total_latency
+
+            # Parse result and publish action
             action_msg = Action()
             action_msg.header.stamp = self.get_clock().now().to_msg()
-            action_msg.command = output.get("command", "stop")
-            action_msg.angular_velocity = output.get("angular_velocity", 0.0)
-            action_msg.linear_velocity = output.get("linear_velocity", 0.0)
-            action_msg.confidence = output.get("confidence", 0.0)
-            action_msg.reasoning = output.get("reasoning", "")
-            action_msg.goal_reached = output.get("goal_reached", False)
+            action_msg.command = result["action"]
+            action_msg.reasoning = result.get("raw_output", "")
+            action_msg.confidence = 1.0
+
+            # Convert parsed action to velocity commands
+            action = result["action"]
+            if action == "stop":
+                action_msg.linear_velocity = 0.0
+                action_msg.angular_velocity = 0.0
+                action_msg.goal_reached = True
+            elif action == "move_forward":
+                # Convert distance to velocity (simple: fixed speed)
+                action_msg.linear_velocity = 0.5  # m/s
+                action_msg.angular_velocity = 0.0
+                action_msg.goal_reached = False
+            elif action == "turn_left":
+                action_msg.linear_velocity = 0.0
+                action_msg.angular_velocity = 0.5  # rad/s positive = left
+                action_msg.goal_reached = False
+            elif action == "turn_right":
+                action_msg.linear_velocity = 0.0
+                action_msg.angular_velocity = -0.5  # rad/s negative = right
+                action_msg.goal_reached = False
 
             self.action_pub.publish(action_msg)
             self.inference_count += 1
 
+            self.get_logger().info(
+                f"Action: {action} | "
+                f"Server: {result.get('latency_ms', 0):.0f}ms | "
+                f"Total: {total_latency:.0f}ms"
+            )
+
+        except requests.exceptions.Timeout:
+            self.error_count += 1
+            self.last_error = "Request timeout"
+            self.get_logger().warn(f"Inference timeout ({self.request_timeout}s)")
+        except requests.exceptions.ConnectionError:
+            self.error_count += 1
+            self.last_error = "Connection lost"
+            self.server_connected = False
+            self.get_logger().warn("Lost connection to inference server")
         except Exception as e:
             self.error_count += 1
             self.last_error = str(e)
             self.get_logger().error(f"Inference error: {e}")
-
-    def _run_model_inference(self, frames, instruction: str) -> dict:
-        """
-        Run the actual NaVILA model inference.
-        Override this method for different model versions.
-
-        Returns dict with keys: command, angular_velocity, linear_velocity,
-                                confidence, reasoning, goal_reached
-        """
-        # TODO: Implement actual model inference pipeline
-        # This requires integrating with the VILA conversation/generation API
-        # The model outputs text like "turn left" which needs to be parsed
-        # into structured commands
-
-        # Placeholder - replace with actual model call
-        return {
-            "command": "stop",
-            "angular_velocity": 0.0,
-            "linear_velocity": 0.0,
-            "confidence": 0.0,
-            "reasoning": "model inference not yet implemented",
-            "goal_reached": False,
-        }
 
     def _set_instruction_callback(self, request, response):
         """Service: set navigation instruction."""
@@ -216,28 +265,17 @@ class NaVilaCore(Node):
 
     def _publish_status(self):
         """Publish system status at 1Hz."""
-        try:
-            import torch
-
-            gpu_mem_used = torch.cuda.memory_allocated() // (1024 * 1024)
-            gpu_mem_total = torch.cuda.get_device_properties(0).total_mem // (1024 * 1024)
-            gpu_util = 0.0  # Would need nvidia-smi or pynvml for real utilization
-        except Exception:
-            gpu_mem_used = 0
-            gpu_mem_total = 0
-            gpu_util = 0.0
-
         status = SystemStatus()
         status.header.stamp = self.get_clock().now().to_msg()
-        status.model_loaded = self.model_loaded
+        status.model_loaded = self.server_connected
         status.inference_running = self.mode == "inference"
         status.camera_connected = len(self.frame_buffer) > 0
         status.robot_connected = True  # TODO: check robot bridge heartbeat
         status.inference_latency_ms = self.last_latency
         status.fps = self.inference_rate if self.mode == "inference" else 0.0
-        status.gpu_memory_used_mb = gpu_mem_used
-        status.gpu_memory_total_mb = gpu_mem_total
-        status.gpu_utilization = gpu_util
+        status.gpu_memory_used_mb = 0  # Remote GPU, not local
+        status.gpu_memory_total_mb = 0
+        status.gpu_utilization = 0.0
         status.last_error = self.last_error
         status.error_count = self.error_count
 

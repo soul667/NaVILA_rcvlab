@@ -1,8 +1,14 @@
-# NaVILA Core Parameters
+# NaVILA Core Parameters (Remote API Mode)
+# The inference runs on a remote GPU server, not locally on Jetson.
 navila_core:
   ros__parameters:
-    model_path: "/models/navila-llama3-8b-8f"
+    # Remote inference server URL (change to your server's LAN IP)
+    server_url: "http://192.168.1.100:8000"
     num_frames: 8
     inference_rate: 2.0
-    device: "cuda:0"
     instruction: "navigate to the goal"
+    # JPEG compression quality for frame transmission (1-100)
+    # Higher = better quality but more bandwidth. 85 is good for LAN.
+    jpeg_quality: 85
+    # HTTP request timeout in seconds
+    request_timeout: 10.0

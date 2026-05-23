@@ -1,0 +1,14 @@
+# Based on the existing pre-built image (x86 GPU version)
+# Change this tag to match your server's image
+ARG BASE_IMAGE=ghcr.io/soul667/navila_rcvlab:cecd23c17e0e943465ebaebcf0c7c65d55de5031
+FROM ${BASE_IMAGE}
+
+# Install only the extra deps needed for the FastAPI server
+RUN pip3 install --no-cache-dir fastapi uvicorn python-multipart
+
+COPY deploy/inference_server/server.py /app/server.py
+
+WORKDIR /app
+EXPOSE 8000
+ENTRYPOINT []
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

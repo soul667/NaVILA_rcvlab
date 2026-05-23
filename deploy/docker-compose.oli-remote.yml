@@ -1,0 +1,60 @@
+## NaVILA + OLI Debug Mode (Remote Inference)
+## Model runs on a remote GPU server, Jetson only handles ROS2 + camera + robot bridge.
+##
+## Usage:
+##   1. Start inference server on GPU machine:
+##      docker compose -f docker-compose.server.yml up
+##   2. Start RealSense on Jetson host:
+##      FASTRTPS_DEFAULT_PROFILES_FILE=./fastdds_no_shm.xml ros2 launch realsense2_camera rs_launch.py
+##   3. Update SERVER_IP in navila_client/config/client_params.yaml
+##   4. docker compose -f docker-compose.oli-remote.yml up
+
+services:
+  navila-client:
+    image: ghcr.io/soul667/navila_rcvlab:cecd23c17e0e943465ebaebcf0c7c65d55de5031-jetson
+    container_name: navila_core
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/config/fastdds_no_shm.xml
+    volumes:
+      - ./navila_client/config/client_params.yaml:/ros2_ws/config/client_params.yaml:ro
+      - ./navila_client:/ros2_ws/src/navila_client
+      - ./fastdds_no_shm.xml:/config/fastdds_no_shm.xml:ro
+    command: >
+      bash -c "
+        pip install requests &&
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --packages-select navila_client &&
+        source /ros2_ws/install/setup.bash &&
+        ros2 launch navila_client client.launch.py params_file:=/ros2_ws/config/client_params.yaml
+      "
+    network_mode: host
+    restart: "no"
+
+  oli-bridge:
+    image: ghcr.io/soul667/navila_rcvlab:cecd23c17e0e943465ebaebcf0c7c65d55de5031-jetson
+    container_name: oli_bridge
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/config/fastdds_no_shm.xml
+    volumes:
+      - ./oli_bridge/config/oli_params.yaml:/ros2_ws/config/oli_params.yaml:ro
+      - ./oli_bridge:/ros2_ws/src/oli_bridge
+      - ./fastdds_no_shm.xml:/config/fastdds_no_shm.xml:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --packages-select oli_bridge &&
+        source /ros2_ws/install/setup.bash &&
+        ros2 launch oli_bridge oli.launch.py params_file:=/ros2_ws/config/oli_params.yaml
+      "
+    network_mode: host
+    restart: "no"
+    depends_on:
+      - navila-client

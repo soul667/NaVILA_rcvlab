@@ -1,0 +1,8 @@
+# NaVILA Client Parameters
+navila_core:
+  ros__parameters:
+    server_url: "http://SERVER_IP:8000"
+    num_frames: 8
+    inference_rate: 2.0
+    instruction: "navigate to the goal"
+    jpeg_quality: 80

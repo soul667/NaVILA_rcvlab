@@ -151,9 +151,14 @@ class OLiBridge(Node):
             Action, "/navila/action", self._action_callback, 10
         )
 
-        # Robot sensor topics
+        # Camera: use compatible QoS (RELIABLE to match RealSense publisher)
+        camera_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self.camera_sub = self.create_subscription(
-            Image, camera_topic, self._camera_callback, sensor_qos
+            Image, camera_topic, self._camera_callback, camera_qos
         )
         self.odom_sub = self.create_subscription(
             Odometry, odom_topic, self._odom_callback, sensor_qos
@@ -403,6 +408,12 @@ class OLiBridge(Node):
     def _camera_callback(self, msg: Image):
         """Forward robot camera to NaVILA standard topic."""
         self.rgb_pub.publish(msg)
+        if not hasattr(self, '_camera_forwarded'):
+            self._camera_forwarded = True
+            self.get_logger().info(
+                f"Camera image received and forwarding to /navila/observation/rgb "
+                f"({msg.width}x{msg.height}, encoding={msg.encoding})"
+            )
 
     def _odom_callback(self, msg: Odometry):
         """Cache odometry and publish robot state."""

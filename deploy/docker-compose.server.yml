@@ -1,0 +1,30 @@
+## NaVILA Inference Server
+## Runs on a GPU server (A6000, etc.) and exposes a FastAPI endpoint.
+## The Jetson calls this API to get navigation actions.
+##
+## Usage:
+##   docker compose -f docker-compose.server.yml up
+##
+## Requires HF_TOKEN build arg if model is gated:
+##   docker compose -f docker-compose.server.yml build --build-arg HF_TOKEN=hf_xxx
+
+services:
+  navila-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    container_name: navila_server
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

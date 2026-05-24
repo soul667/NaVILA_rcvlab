@@ -9,6 +9,7 @@ import { ActionLibrary } from "./components/ActionLibrary";
 import { NotificationLog } from "./components/NotificationLog";
 import { SystemControl } from "./components/SystemControl";
 import { InferenceControl } from "./components/InferenceControl";
+import { MotionParamsPanel } from "./components/MotionParamsPanel";
 import { EmergencyStop } from "./components/EmergencyStop";
 
 const { Header, Content } = Layout;
@@ -100,7 +101,7 @@ function App() {
                     <ControlOutlined /> 模式
                   </span>
                 ),
-                children: <ModeControl connected={connected} sendRequest={sendRequest} />,
+                children: <ModeControl connected={connected} />,
               },
               {
                 key: "walk",
@@ -118,7 +119,7 @@ function App() {
                     <PlayIcon /> 动作
                   </span>
                 ),
-                children: <ActionLibrary connected={connected} sendRequest={sendRequest} />,
+                children: <ActionLibrary connected={connected} />,
               },
               {
                 key: "inference",
@@ -127,7 +128,12 @@ function App() {
                     <CloudServerOutlined /> 推理
                   </span>
                 ),
-                children: <InferenceControl serverUrl={DEFAULT_INFERENCE_URL} />,
+                children: (
+                  <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                    <InferenceControl serverUrl={DEFAULT_INFERENCE_URL} />
+                    <MotionParamsPanel />
+                  </Space>
+                ),
               },
               {
                 key: "logs",

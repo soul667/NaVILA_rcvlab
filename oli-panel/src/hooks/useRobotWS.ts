@@ -65,14 +65,16 @@ export function useRobotWS({ url, accid, autoConnect = true }: UseRobotWSOptions
             pendingRef.current.delete(guid);
             pending.resolve(msg);
           }
+          return;
         }
 
-        // Handle notify messages
+        // Handle notify messages (skip high-frequency ones)
         if (title.startsWith("notify_")) {
           if (title === "notify_robot_info") {
             const result = msg.data.result as RobotNotifyInfo[];
             setRobotInfo(result);
-          } else {
+          } else if (title !== "notify_joy_data") {
+            // Skip joy_data to avoid flooding state/re-renders
             setNotifications((prev) => [msg, ...prev].slice(0, 50));
           }
         }
@@ -93,7 +95,7 @@ export function useRobotWS({ url, accid, autoConnect = true }: UseRobotWSOptions
 
   /** Send a request and wait for response (promise-based) */
   const sendRequest = useCallback(
-    (title: string, data: Record<string, unknown> = {}, timeout = 10000): Promise<RobotResponse> => {
+    (title: string, data: Record<string, unknown> = {}, timeout = 15000): Promise<RobotResponse> => {
       return new Promise((resolve, reject) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
           reject(new Error("WebSocket not connected"));

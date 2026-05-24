@@ -315,22 +315,10 @@ class OLiBridge(Node):
                 self.cmd_y = 0.0
                 self.cmd_yaw = 0.0
             else:
-                # Clamp NaVILA velocities
-                linear_vel = self._clamp(
-                    msg.linear_velocity, -self.max_linear_vel, self.max_linear_vel
-                )
-                angular_vel = self._clamp(
-                    msg.angular_velocity, -self.max_angular_vel, self.max_angular_vel
-                )
-
-                # Convert to ratio [-1, 1]
-                self.cmd_x = self._clamp(
-                    linear_vel / self.robot_max_linear_vel, -1.0, 1.0
-                )
-                self.cmd_y = 0.0  # NaVILA doesn't output lateral movement
-                self.cmd_yaw = self._clamp(
-                    angular_vel / self.robot_max_angular_vel, -1.0, 1.0
-                )
+                # Direct pass-through: client_node already sends ratio [-1, 1]
+                self.cmd_x = self._clamp(msg.linear_velocity, -1.0, 1.0)
+                self.cmd_y = 0.0
+                self.cmd_yaw = self._clamp(msg.angular_velocity, -1.0, 1.0)
 
             self.last_action_time = time.time()
 

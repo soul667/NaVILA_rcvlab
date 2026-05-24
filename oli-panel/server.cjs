@@ -1,11 +1,14 @@
 const { spawn, exec } = require("child_process");
 const http = require("http");
+const WebSocket = require("ws");
 
 let cameraProcess = null;
 
 const FASTRTPS_PROFILE = "/home/guest/code/NaVILA_rcvlab/deploy/fastdds_no_shm.xml";
 const DEPLOY_DIR = "/home/guest/code/NaVILA_rcvlab";
 const COMPOSE_FILE = "deploy/docker-compose.oli-remote.yml";
+const ROBOT_WS_URL = "ws://10.192.1.2:5000";
+const ROBOT_ACCID = "HU_D04_01_118";
 
 function execAsync(cmd, options = {}) {
   return new Promise((resolve, reject) => {
@@ -46,7 +49,7 @@ const server = http.createServer(async (req, res) => {
 
     cameraProcess = spawn(
       "bash",
-      ["-c", "source /opt/ros/humble/setup.bash && ros2 launch realsense2_camera rs_launch.py serial_no:='338622074043'"],
+      ["-c", "source /opt/ros/humble/setup.bash && ros2 launch realsense2_camera rs_launch.py serial_no:=\"'338622074043'\""],
       { env, detached: true }
     );
 
@@ -217,7 +220,7 @@ const server = http.createServer(async (req, res) => {
       const env = { ...process.env, FASTRTPS_DEFAULT_PROFILES_FILE: FASTRTPS_PROFILE };
       cameraProcess = spawn(
         "bash",
-      ["-c", "source /opt/ros/humble/setup.bash && ros2 launch realsense2_camera rs_launch.py serial_no:='338622074043'"],
+      ["-c", "source /opt/ros/humble/setup.bash && ros2 launch realsense2_camera rs_launch.py serial_no:=\"'338622074043'\""],
         { env, detached: true }
       );
       cameraProcess.stdout.on("data", (d) => console.log(`[camera] ${d.toString().trim()}`));
@@ -298,6 +301,103 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(200);
     res.end(JSON.stringify({ success: true, results }));
+    return;
+  }
+
+  // =========================================================================
+  // Robot Command Proxy (独立 WebSocket 连接，避免和 oli_bridge 冲突)
+  // =========================================================================
+
+  if (req.method === "POST" && req.url === "/api/robot/command") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const { title, data } = JSON.parse(body);
+        const guid = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+
+        const ws = new WebSocket(ROBOT_WS_URL);
+        const timeout = setTimeout(() => {
+          ws.close();
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: false, error: "timeout" }));
+        }, 20000);
+
+        ws.on("open", () => {
+          const msg = {
+            accid: ROBOT_ACCID,
+            title,
+            timestamp: Date.now(),
+            guid,
+            data: data || {},
+          };
+          ws.send(JSON.stringify(msg));
+        });
+
+        ws.on("message", (raw) => {
+          try {
+            const resp = JSON.parse(raw.toString());
+            // 只关心我们发的指令的 response
+            if (resp.title && resp.title.startsWith("response_") && resp.guid === guid) {
+              clearTimeout(timeout);
+              ws.close();
+              res.writeHead(200);
+              res.end(JSON.stringify({ success: true, data: resp.data }));
+            }
+            // 跳过 notify 消息
+          } catch {}
+        });
+
+        ws.on("error", (err) => {
+          clearTimeout(timeout);
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        });
+      } catch (e) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ success: false, error: "Invalid JSON body" }));
+      }
+    });
+    return;
+  }
+
+  // =========================================================================
+  // Motion Parameters API (write to client_params.yaml)
+  // =========================================================================
+
+  if (req.method === "POST" && req.url === "/api/motion-params") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const params = JSON.parse(body);
+        const fs = require("fs");
+        const yamlPath = DEPLOY_DIR + "/deploy/navila_client/config/client_params.yaml";
+
+        const yaml = `# NaVILA Client Parameters (Step-by-step navigation mode)
+navila_core:
+  ros__parameters:
+    server_url: "http://10.16.117.238:8000"
+    num_frames: 8
+    instruction: "navigate to the goal"
+    jpeg_quality: 80
+
+    # Motion control parameters
+    forward_speed_ratio: ${params.forward_speed_ratio}
+    turn_speed_ratio: ${params.turn_speed_ratio}
+    forward_speed_ms: ${params.forward_speed_ms}
+    turn_speed_degs: ${params.turn_speed_degs}
+    stop_duration: ${params.stop_duration}
+    stabilize_duration: ${params.stabilize_duration}
+`;
+        fs.writeFileSync(yamlPath, yaml);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, message: "Params saved. Restart container to apply." }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
     return;
   }
 

@@ -55,9 +55,56 @@ export function StatusPanel({ connected, robotInfo, sendRequest }: Props) {
   // Extract battery info from robotInfo notify
   const batteryInfo = robotInfo.find((r) => r.name === "peripheral");
   const batCharge = batteryInfo?.values.find((v) => v.key === "bat_chg")?.value;
+  const battery = batteryInfo?.values.find((v) => v.key === "battery")?.value;
+
+  // Extract system_info (robot mode, status, etc.)
+  const systemInfo = robotInfo.find((r) => r.name === "system_info");
+  const robotStatus = systemInfo?.values.find((v) => v.key === "robot_status")?.value;
+  const abilityRunning = systemInfo?.values.find((v) => v.key === "ability_running")?.value;
+  const robotMode = systemInfo?.values.find((v) => v.key === "mode")?.value;
+
+  const statusColorMap: Record<string, string> = {
+    Walk: "blue",
+    Menu: "default",
+    MotionLibrary: "purple",
+    Damping: "orange",
+    ZeroTorque: "red",
+  };
 
   return (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      {/* Robot Mode - 最重要的信息放最上面 */}
+      <Card size="small" title="机器人模式">
+        {systemInfo ? (
+          <Space wrap size="middle">
+            <div>
+              <span style={{ fontSize: 12, color: "#999" }}>状态: </span>
+              <Tag color={statusColorMap[robotStatus || ""] || "default"} style={{ fontSize: 14 }}>
+                {robotStatus || "未知"}
+              </Tag>
+            </div>
+            <div>
+              <span style={{ fontSize: 12, color: "#999" }}>当前能力: </span>
+              <Tag color={statusColorMap[abilityRunning || ""] || "cyan"}>
+                {abilityRunning || "无"}
+              </Tag>
+            </div>
+            <div>
+              <span style={{ fontSize: 12, color: "#999" }}>控制模式: </span>
+              <Tag>{robotMode || "未知"}</Tag>
+            </div>
+            {battery && (
+              <div>
+                <span style={{ fontSize: 12, color: "#999" }}>电量: </span>
+                <Tag color={Number(battery) > 20 ? "green" : "red"}>{battery}%</Tag>
+              </div>
+            )}
+          </Space>
+        ) : (
+          <span style={{ color: "#999" }}>等待机器人数据...</span>
+        )}
+      </Card>
+
       {/* Connection Status */}
       <Card size="small" title="连接状态">
         <Space>

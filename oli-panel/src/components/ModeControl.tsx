@@ -9,7 +9,6 @@ import {
 
 interface Props {
   connected: boolean;
-  sendRequest: (title: string, data?: Record<string, unknown>, timeout?: number) => Promise<any>;
 }
 
 /**
@@ -21,17 +20,8 @@ interface Props {
  * - 动作库模式: 可执行预定义动作/舞蹈
  * - 坐下/躺下: 从站立状态转换
  */
-export function ModeControl({ connected, sendRequest }: Props) {
+export function ModeControl({ connected }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
-
-  // 慢指令（站起、坐下、躺下等物理动作）需要更长超时
-  const SLOW_COMMANDS = new Set([
-    "request_standup",
-    "request_from_stand_to_sit",
-    "request_lie_down",
-    "request_prepare",
-    "request_calibrate",
-  ]);
 
   const exec = async (title: string, data: Record<string, unknown> = {}, label: string) => {
     if (!connected) {
@@ -40,13 +30,18 @@ export function ModeControl({ connected, sendRequest }: Props) {
     }
     setLoading(title);
     try {
-      const timeout = SLOW_COMMANDS.has(title) ? 30000 : 10000;
-      const resp = await sendRequest(title, data, timeout);
-      const result = resp.data.result;
-      if (result === "success") {
+      const resp = await fetch("/api/robot/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, data }),
+      });
+      const result = await resp.json();
+      if (result.success && result.data?.result === "success") {
         message.success(`${label} 成功`);
+      } else if (result.success === false && result.error === "timeout") {
+        message.warning(`${label} 超时（可能仍在执行）`);
       } else {
-        message.error(`${label} 失败: ${result}`);
+        message.error(`${label} 失败: ${result.data?.result || result.error || "unknown"}`);
       }
     } catch (e: any) {
       message.error(`${label} 错误: ${e.message}`);

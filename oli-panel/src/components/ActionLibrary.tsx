@@ -5,10 +5,18 @@ import type { AtomicMotion, Dance } from "../types/robot";
 
 interface Props {
   connected: boolean;
-  sendRequest: (title: string, data?: Record<string, unknown>) => Promise<any>;
 }
 
-export function ActionLibrary({ connected, sendRequest }: Props) {
+async function robotCommand(title: string, data: Record<string, unknown> = {}) {
+  const resp = await fetch("/api/robot/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, data }),
+  });
+  return resp.json();
+}
+
+export function ActionLibrary({ connected }: Props) {
   const [motions, setMotions] = useState<AtomicMotion[]>([]);
   const [dances, setDances] = useState<Dance[]>([]);
   const [loadingMotions, setLoadingMotions] = useState(false);
@@ -19,9 +27,9 @@ export function ActionLibrary({ connected, sendRequest }: Props) {
     if (!connected) return;
     setLoadingMotions(true);
     try {
-      const resp = await sendRequest("request_get_atomic_motion_list");
-      if (resp.data.result === "success") {
-        setMotions(resp.data.motion_list as AtomicMotion[]);
+      const result = await robotCommand("request_get_atomic_motion_list");
+      if (result.success && result.data?.result === "success") {
+        setMotions(result.data.motion_list as AtomicMotion[]);
       }
     } catch (e: any) {
       message.error("获取动作列表失败: " + e.message);
@@ -34,9 +42,9 @@ export function ActionLibrary({ connected, sendRequest }: Props) {
     if (!connected) return;
     setLoadingDances(true);
     try {
-      const resp = await sendRequest("request_get_dance_list");
-      if (resp.data.result === "success") {
-        setDances(resp.data.dances as Dance[]);
+      const result = await robotCommand("request_get_dance_list");
+      if (result.success && result.data?.result === "success") {
+        setDances(result.data.dances as Dance[]);
       }
     } catch (e: any) {
       message.error("获取舞蹈列表失败: " + e.message);
@@ -55,14 +63,17 @@ export function ActionLibrary({ connected, sendRequest }: Props) {
   const executeMotion = async (motionName: string) => {
     setExecuting(motionName);
     try {
-      const resp = await sendRequest("request_execute_atomic_motion", { motion_name: motionName });
-      if (resp.data.result === "success") {
+      // 使用 request_action_sync，在 walk 和 motion library 模式下都能用
+      const result = await robotCommand("request_action_sync", { name: motionName });
+      if (result.success && result.data?.result === "success") {
         message.success(`动作 ${motionName} 执行成功`);
+      } else if (result.error === "timeout") {
+        message.warning(`动作 ${motionName} 已发送（等待执行完成）`);
       } else {
-        message.error(`动作失败: ${resp.data.result}`);
+        message.error(`动作失败: ${result.data?.result || result.error}`);
       }
     } catch (e: any) {
-      message.warning(`动作 ${motionName} 已发送 (${e.message})`);
+      message.error(`动作 ${motionName} 错误: ${e.message}`);
     } finally {
       setExecuting(null);
     }
@@ -71,14 +82,17 @@ export function ActionLibrary({ connected, sendRequest }: Props) {
   const executeDance = async (danceName: string) => {
     setExecuting(danceName);
     try {
-      const resp = await sendRequest("request_dance", { name: danceName });
-      if (resp.data.result === "success") {
+      // request_action_sync 支持舞蹈和动作混合
+      const result = await robotCommand("request_action_sync", { name: danceName });
+      if (result.success && result.data?.result === "success") {
         message.success(`舞蹈 ${danceName} 执行成功`);
+      } else if (result.error === "timeout") {
+        message.warning(`舞蹈 ${danceName} 已发送（等待执行完成）`);
       } else {
-        message.error(`舞蹈失败: ${resp.data.result}`);
+        message.error(`舞蹈失败: ${result.data?.result || result.error}`);
       }
     } catch (e: any) {
-      message.warning(`舞蹈 ${danceName} 已发送 (${e.message})`);
+      message.error(`舞蹈 ${danceName} 错误: ${e.message}`);
     } finally {
       setExecuting(null);
     }

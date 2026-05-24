@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>NaVILA Server</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0b0f1a;--surface:rgba(255,255,255,0.03);--surface-hover:rgba(255,255,255,0.06);
+  --border:rgba(255,255,255,0.06);--text:#e2e8f0;--text-dim:#64748b;
+  --accent:#22d3ee;--green:#4ade80;--red:#f87171;--orange:#fb923c;--blue:#60a5fa;--radius:16px
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.topbar{
+  position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
+  padding:16px 32px;background:rgba(11,15,26,0.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)
+}
+.topbar-left{display:flex;align-items:center;gap:12px}
+.logo{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),#a78bfa);
+  border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.topbar-left h1{font-size:1.1rem;font-weight:600;letter-spacing:-0.02em}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:100px;
+  font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
+.badge-ok{background:rgba(74,222,128,0.1);color:var(--green);border:1px solid rgba(74,222,128,0.2)}
+.badge-ok::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.badge-err{background:rgba(248,113,113,0.1);color:var(--red);border:1px solid rgba(248,113,113,0.2)}
+.badge-pause{background:rgba(251,146,60,0.1);color:var(--orange);border:1px solid rgba(251,146,60,0.2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.container{max-width:1280px;margin:0 auto;padding:28px 32px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+@media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;transition:background 0.2s}
+.stat:hover{background:var(--surface-hover)}
+.stat-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.stat-header .ico{font-size:16px}
+.stat-header .lbl{font-size:0.75rem;font-weight:500;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em}
+.stat-value{font-size:1.5rem;font-weight:700;color:var(--text)}
+.stat-value .unit{font-size:0.8rem;font-weight:400;color:var(--text-dim);margin-left:4px}
+
+.control-panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px 24px;margin-bottom:24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap
+}
+.control-panel input{
+  flex:1;min-width:200px;padding:10px 16px;border-radius:10px;border:1px solid var(--border);
+  background:rgba(255,255,255,0.04);color:var(--text);font-size:0.9rem;outline:none;
+  transition:border-color 0.2s
+}
+.control-panel input:focus{border-color:var(--accent)}
+.control-panel input::placeholder{color:var(--text-dim)}
+.btn{
+  padding:10px 20px;border-radius:10px;border:none;font-size:0.8rem;font-weight:600;
+  cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;transition:all 0.2s
+}
+.btn-primary{background:var(--accent);color:#000}
+.btn-primary:hover{background:#67e8f9}
+.btn-danger{background:rgba(248,113,113,0.15);color:var(--red);border:1px solid rgba(248,113,113,0.3)}
+.btn-danger:hover{background:rgba(248,113,113,0.25)}
+.btn-success{background:rgba(74,222,128,0.15);color:var(--green);border:1px solid rgba(74,222,128,0.3)}
+.btn-success:hover{background:rgba(74,222,128,0.25)}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.current-instruction{font-size:0.8rem;color:var(--text-dim);margin-top:8px;padding:0 4px}
+.current-instruction strong{color:var(--accent)}
+
+.section-title{font-size:0.85rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:16px}
+.history{display:flex;flex-direction:column;gap:10px}
+.history-item{
+  display:flex;align-items:center;gap:16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;
+  transition:background 0.2s,border-color 0.2s
+}
+.history-item:hover{background:var(--surface-hover);border-color:rgba(255,255,255,0.1)}
+.history-item .frames{display:flex;gap:4px;flex-shrink:0;overflow-x:auto;max-width:420px;direction:rtl}
+.history-item .frames img{width:80px;height:60px;object-fit:cover;border-radius:6px;background:#111;flex-shrink:0;direction:ltr}
+.history-item .body{flex:1;min-width:0}
+.history-item .row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.action-chip{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;
+  font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em
+}
+.action-chip.forward{background:rgba(74,222,128,0.12);color:var(--green)}
+.action-chip.left{background:rgba(96,165,250,0.12);color:var(--blue)}
+.action-chip.right{background:rgba(251,146,60,0.12);color:var(--orange)}
+.action-chip.stop{background:rgba(248,113,113,0.12);color:var(--red)}
+.history-item .instruction{font-size:0.8rem;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-item .raw{font-size:0.75rem;color:#475569;font-style:italic}
+.history-item .meta{text-align:right;flex-shrink:0}
+.history-item .meta .latency{font-size:0.9rem;font-weight:600;color:var(--accent)}
+.history-item .meta .sub{font-size:0.7rem;color:var(--text-dim)}
+.empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:80px 20px;background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius)
+}
+.empty .ico{font-size:40px;margin-bottom:12px}
+.empty p{color:var(--text-dim);font-size:0.9rem}
+.lightbox{
+  position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.9);
+  display:none;align-items:center;justify-content:center;cursor:zoom-out
+}
+.lightbox.active{display:flex}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain}
+.history-item .frames img{cursor:zoom-in}
+</style>
+</head>
+<body>
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('active')"><img id="lb-img" src=""/></div>
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">&#x1F916;</div>
+    <h1>NaVILA Inference Server</h1>
+  </div>
+  <div id="badge" class="badge badge-err">Connecting...</div>
+</div>
+<div class="container">
+  <div class="stats">
+    <div class="stat"><div class="stat-header"><span class="ico">&#x1F4F9;</span><span class="lbl">GPU</span></div><div class="stat-value" id="s-gpu">-</div></div>
+    <div class="stat"><div class="stat-header"><span class="ico">&#x1F4BE;</span><span class="lbl">VRAM</span></div><div class="stat-value" id="s-vram">-</div></div>
+    <div class="stat"><div class="stat-header"><span class="ico">&#x26A1;</span><span class="lbl">Inferences</span></div><div class="stat-value" id="s-count">0</div></div>
+    <div class="stat"><div class="stat-header"><span class="ico">&#x23F1;</span><span class="lbl">Avg Latency</span></div><div class="stat-value" id="s-latency">-</div></div>
+  </div>
+
+  <div class="control-panel">
+    <input type="text" id="instr-input" placeholder="Enter navigation instruction..." />
+    <button class="btn btn-primary" id="btn-set" onclick="setInstruction()">Set Instruction</button>
+    <button class="btn btn-danger" id="btn-pause" onclick="togglePause()">Pause</button>
+  </div>
+  <div class="current-instruction" id="cur-instr">Current: <strong>-</strong></div>
+
+  <div style="margin-top:24px;display:flex;align-items:center;gap:16px;margin-bottom:16px">
+    <div class="section-title" style="margin:0">Inference History</div>
+    <div style="display:flex;gap:4px">
+      <button class="btn btn-primary" id="tab-recent" onclick="switchTab('recent')" style="padding:6px 14px;font-size:0.7rem">Recent 50</button>
+      <button class="btn" id="tab-all" onclick="switchTab('all')" style="padding:6px 14px;font-size:0.7rem;background:var(--surface);color:var(--text-dim);border:1px solid var(--border)">All History</button>
+    </div>
+  </div>
+  <div class="history" id="history">
+    <div class="empty"><span class="ico">&#x1F4E1;</span><p>Waiting for robot to connect...</p></div>
+  </div>
+  <div id="pagination" style="display:none;margin-top:16px;display:flex;justify-content:center;gap:8px"></div>
+</div>
+<script>
+var paused = false;
+var currentTab = 'recent';
+var allPage = 1;
+
+function actionChip(a, d, g) {
+  var m = {
+    move_forward: {c:'forward', t:'\u2B06 Forward '+d+'cm'},
+    turn_left: {c:'left', t:'\u21A9 Left '+g+'\u00b0'},
+    turn_right: {c:'right', t:'\u21AA Right '+g+'\u00b0'},
+    stop: {c:'stop', t:'\u23F9 Stop'}
+  };
+  var x = m[a] || {c:'', t:a};
+  return '<span class="action-chip '+x.c+'">'+x.t+'</span>';
+}
+
+function renderItem(item) {
+  var t = new Date(item.timestamp * 1000).toLocaleTimeString();
+  var r = item.result;
+  var framesHtml = '';
+  var frames = item.frames_b64 || (item.last_frame_b64 ? [item.last_frame_b64] : []);
+  if (frames.length > 0) {
+    framesHtml = '<div class="frames">' + frames.map(function(f) {
+      return '<img src="data:image/jpeg;base64,'+f+'" onclick="openLightbox(this.src)"/>';
+    }).join('') + '</div>';
+  }
+  return '<div class="history-item">' +
+    framesHtml +
+    '<div class="body">' +
+    '<div class="row">' + actionChip(r.action, r.distance_cm, r.degree) + '<span style="font-size:0.7rem;color:#475569">' + t + '</span></div>' +
+    '<div class="instruction">' + item.instruction + '</div>' +
+    '<div class="raw">' + r.raw_output + '</div></div>' +
+    '<div class="meta"><div class="latency">' + r.latency_ms.toFixed(0) + 'ms</div><div class="sub">' + item.num_frames + ' frames</div></div></div>';
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  allPage = 1;
+  var btnRecent = document.getElementById('tab-recent');
+  var btnAll = document.getElementById('tab-all');
+  if (tab === 'recent') {
+    btnRecent.className = 'btn btn-primary';
+    btnRecent.style.cssText = 'padding:6px 14px;font-size:0.7rem';
+    btnAll.className = 'btn';
+    btnAll.style.cssText = 'padding:6px 14px;font-size:0.7rem;background:var(--surface);color:var(--text-dim);border:1px solid var(--border)';
+  } else {
+    btnAll.className = 'btn btn-primary';
+    btnAll.style.cssText = 'padding:6px 14px;font-size:0.7rem';
+    btnRecent.className = 'btn';
+    btnRecent.style.cssText = 'padding:6px 14px;font-size:0.7rem;background:var(--surface);color:var(--text-dim);border:1px solid var(--border)';
+  }
+  renderHistory();
+}
+
+async function renderHistory() {
+  var el = document.getElementById('history');
+  var pag = document.getElementById('pagination');
+
+  if (currentTab === 'recent') {
+    pag.style.display = 'none';
+    try {
+      var hist = await (await fetch('/history')).json();
+      document.getElementById('s-count').textContent = hist.length;
+      if (hist.length > 0) {
+        var avg = hist.reduce(function(s,x){return s+x.result.latency_ms},0) / hist.length;
+        document.getElementById('s-latency').innerHTML = avg.toFixed(0) + '<span class="unit">ms</span>';
+      }
+      if (hist.length === 0) {
+        el.innerHTML = '<div class="empty"><span class="ico">&#x1F4E1;</span><p>Waiting for robot to connect...</p></div>';
+        return;
+      }
+      el.innerHTML = hist.slice().reverse().map(renderItem).join('');
+    } catch(e) {}
+  } else {
+    try {
+      var data = await (await fetch('/history_all?page='+allPage+'&per_page=20')).json();
+      document.getElementById('s-count').textContent = data.total;
+      if (data.items.length === 0) {
+        el.innerHTML = '<div class="empty"><span class="ico">&#x1F4E1;</span><p>No history yet.</p></div>';
+        pag.style.display = 'none';
+        return;
+      }
+      el.innerHTML = data.items.map(renderItem).join('');
+      pag.style.display = 'flex';
+      var pagHtml = '';
+      if (allPage > 1) pagHtml += '<button class="btn" style="padding:6px 12px;font-size:0.7rem;background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="allPage--;renderHistory()">&#x2190; Prev</button>';
+      pagHtml += '<span style="padding:6px 12px;font-size:0.8rem;color:var(--text-dim)">Page '+data.page+' / '+data.pages+' ('+data.total+' total)</span>';
+      if (allPage < data.pages) pagHtml += '<button class="btn" style="padding:6px 12px;font-size:0.7rem;background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="allPage++;renderHistory()">Next &#x2192;</button>';
+      pag.innerHTML = pagHtml;
+    } catch(e) {}
+  }
+}
+
+async function setInstruction() {
+  var input = document.getElementById('instr-input');
+  var val = input.value.trim();
+  if (!val) return;
+  await fetch('/set_instruction', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({instruction: val})
+  });
+  input.value = '';
+  refresh();
+}
+
+async function togglePause() {
+  if (paused) {
+    await fetch('/resume', {method:'POST'});
+  } else {
+    await fetch('/pause', {method:'POST'});
+  }
+  refresh();
+}
+
+document.getElementById('instr-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') setInstruction();
+});
+
+async function refresh() {
+  try {
+    var h = await (await fetch('/health')).json();
+    var st = await (await fetch('/state')).json();
+    paused = st.paused;
+
+    var b = document.getElementById('badge');
+    if (st.paused) {
+      b.className = 'badge badge-pause';
+      b.textContent = 'Paused';
+    } else if (h.model_loaded) {
+      b.className = 'badge badge-ok';
+      b.textContent = 'Online';
+    } else {
+      b.className = 'badge badge-err';
+      b.textContent = 'Loading...';
+    }
+
+    document.getElementById('s-gpu').textContent = h.gpu_name || '-';
+    document.getElementById('s-vram').innerHTML = h.gpu_memory_used_gb + ' / ' + h.gpu_memory_total_gb + '<span class="unit">GB</span>';
+
+    document.getElementById('cur-instr').innerHTML = 'Current: <strong>' + st.instruction + '</strong>';
+
+    var btn = document.getElementById('btn-pause');
+    if (paused) {
+      btn.textContent = 'Resume';
+      btn.className = 'btn btn-success';
+    } else {
+      btn.textContent = 'Pause';
+      btn.className = 'btn btn-danger';
+    }
+  } catch(e) {}
+
+  renderHistory();
+}
+
+function openLightbox(src) {
+  document.getElementById('lb-img').src = src;
+  document.getElementById('lightbox').classList.add('active');
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

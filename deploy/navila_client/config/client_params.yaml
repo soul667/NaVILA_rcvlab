@@ -6,17 +6,10 @@ navila_core:
     instruction: "navigate to the goal"
     jpeg_quality: 80
 
-    # === Motion control parameters ===
-    # These are ratio values [-1, 1] sent directly to the robot
-    forward_speed_ratio: 0.3    # robot x ratio when moving forward (0.3 = 30% max speed)
-    turn_speed_ratio: 0.3       # robot yaw ratio when turning (0.3 = 30% max turn speed)
-
-    # Estimated real-world speeds at the above ratios
-    # Used to calculate execution time: time = distance / speed
-    # MEASURE ON YOUR ROBOT AND ADJUST!
-    forward_speed_ms: 0.2       # meters per second at forward_speed_ratio=0.3
-    turn_speed_degs: 30.0       # degrees per second at turn_speed_ratio=0.3
-
-    # Timing
-    stop_duration: 0.5          # seconds to send zero velocity after action completes
-    stabilize_duration: 1.0     # seconds to wait (let robot settle) before next inference
+    # Motion control parameters
+    forward_speed_ratio: 0.3
+    turn_speed_ratio: 0.9
+    forward_speed_ms: 0.2
+    turn_speed_degs: 36.0
+    stop_duration: 0.01
+    stabilize_duration: 0.01

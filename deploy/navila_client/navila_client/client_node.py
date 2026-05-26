@@ -304,9 +304,9 @@ class NaVilaClient(Node):
     def _calculate_duration(self, action: str, distance_cm: int, degree: int) -> float:
         """Calculate how long to execute the action based on distance/angle.
 
-        Uses configured speed estimates:
-          - forward: duration = distance / forward_speed_ms
-          - turn: duration = degree / turn_speed_degs
+        Calibrated values:
+          - forward: 0.2 m/s at ratio 0.3
+          - turn: 36 deg/s at ratio 0.9 (10s = 360°)
         """
         if action == "move_forward":
             distance_m = distance_cm / 100.0

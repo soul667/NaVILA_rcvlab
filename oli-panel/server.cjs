@@ -374,6 +374,9 @@ const server = http.createServer(async (req, res) => {
         const fs = require("fs");
         const yamlPath = DEPLOY_DIR + "/deploy/navila_client/config/client_params.yaml";
 
+        // Ensure all numbers have decimal point (ROS2 requires DOUBLE not INTEGER)
+        const toFloat = (v) => Number.isInteger(v) ? v.toFixed(1) : String(v);
+
         const yaml = `# NaVILA Client Parameters (Step-by-step navigation mode)
 navila_core:
   ros__parameters:
@@ -383,12 +386,12 @@ navila_core:
     jpeg_quality: 80
 
     # Motion control parameters
-    forward_speed_ratio: ${params.forward_speed_ratio}
-    turn_speed_ratio: ${params.turn_speed_ratio}
-    forward_speed_ms: ${params.forward_speed_ms}
-    turn_speed_degs: ${params.turn_speed_degs}
-    stop_duration: ${params.stop_duration}
-    stabilize_duration: ${params.stabilize_duration}
+    forward_speed_ratio: ${toFloat(params.forward_speed_ratio)}
+    turn_speed_ratio: ${toFloat(params.turn_speed_ratio)}
+    forward_speed_ms: ${toFloat(params.forward_speed_ms)}
+    turn_speed_degs: ${toFloat(params.turn_speed_degs)}
+    stop_duration: ${toFloat(params.stop_duration)}
+    stabilize_duration: ${toFloat(params.stabilize_duration)}
 `;
         fs.writeFileSync(yamlPath, yaml);
         res.writeHead(200);

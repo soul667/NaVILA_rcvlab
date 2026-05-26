@@ -207,9 +207,9 @@ export function MotionParamsPanel() {
           </Col>
           <Col span={10}>
             <Slider
-              min={0.1}
+              min={0.01}
               max={2.0}
-              step={0.1}
+              step={0.01}
               value={params.stop_duration}
               onChange={(v) => updateParam("stop_duration", v)}
             />
@@ -217,11 +217,11 @@ export function MotionParamsPanel() {
           <Col span={6}>
             <InputNumber
               size="small"
-              min={0.1}
+              min={0.01}
               max={2.0}
-              step={0.1}
+              step={0.01}
               value={params.stop_duration}
-              onChange={(v) => updateParam("stop_duration", v ?? 0.5)}
+              onChange={(v) => updateParam("stop_duration", v ?? 0.01)}
               style={{ width: "100%" }}
             />
           </Col>
@@ -233,9 +233,9 @@ export function MotionParamsPanel() {
           </Col>
           <Col span={10}>
             <Slider
-              min={0.5}
+              min={0.01}
               max={5.0}
-              step={0.5}
+              step={0.01}
               value={params.stabilize_duration}
               onChange={(v) => updateParam("stabilize_duration", v)}
             />
@@ -243,11 +243,11 @@ export function MotionParamsPanel() {
           <Col span={6}>
             <InputNumber
               size="small"
-              min={0.5}
+              min={0.01}
               max={5.0}
-              step={0.5}
+              step={0.01}
               value={params.stabilize_duration}
-              onChange={(v) => updateParam("stabilize_duration", v ?? 1.0)}
+              onChange={(v) => updateParam("stabilize_duration", v ?? 0.01)}
               style={{ width: "100%" }}
             />
           </Col>

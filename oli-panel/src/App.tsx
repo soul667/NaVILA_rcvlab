@@ -11,6 +11,7 @@ import { SystemControl } from "./components/SystemControl";
 import { InferenceControl } from "./components/InferenceControl";
 import { MotionParamsPanel } from "./components/MotionParamsPanel";
 import { EmergencyStop } from "./components/EmergencyStop";
+import { ManualTest } from "./components/ManualTest";
 
 const { Header, Content } = Layout;
 const { Title } = Typography;
@@ -111,6 +112,15 @@ function App() {
                   </span>
                 ),
                 children: <WalkControl connected={connected} sendCommand={sendCommand} />,
+              },
+              {
+                key: "test",
+                label: (
+                  <span>
+                    🎯 测试
+                  </span>
+                ),
+                children: <ManualTest />,
               },
               {
                 key: "actions",

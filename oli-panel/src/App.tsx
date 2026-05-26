@@ -5,6 +5,7 @@ import { useRobotWS } from "./hooks/useRobotWS";
 import { StatusPanel } from "./components/StatusPanel";
 import { ModeControl } from "./components/ModeControl";
 import { WalkControl } from "./components/WalkControl";
+import { HeadControl } from "./components/HeadControl";
 import { ActionLibrary } from "./components/ActionLibrary";
 import { NotificationLog } from "./components/NotificationLog";
 import { SystemControl } from "./components/SystemControl";
@@ -112,6 +113,15 @@ function App() {
                   </span>
                 ),
                 children: <WalkControl connected={connected} sendCommand={sendCommand} />,
+              },
+              {
+                key: "head",
+                label: (
+                  <span>
+                    🎯 头部
+                  </span>
+                ),
+                children: <HeadControl connected={connected} sendCommand={sendCommand} />,
               },
               {
                 key: "test",

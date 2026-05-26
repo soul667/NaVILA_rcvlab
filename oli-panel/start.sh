@@ -3,7 +3,7 @@
 # 启动前端 dev server (port 3001) 和相机 API server (port 3002)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export PATH="/home/guest/micromamba/bin:$PATH"
+export PATH="/home/wyc/node-v20.19.0-linux-x64/bin:/home/guest/micromamba/bin:$PATH"
 
 echo "=== OLI Robot Control Panel ==="
 echo ""

@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Card, Button, Space, Input, Tag, message, Statistic, Row, Col, Badge } from "antd";
+import { Card, Button, Space, Input, Tag, message, Statistic, Row, Col, Badge, Alert } from "antd";
 import {
   CloudServerOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   SendOutlined,
   ReloadOutlined,
+  ApiOutlined,
 } from "@ant-design/icons";
 
 interface InferenceState {
   instruction: string;
   paused: boolean;
+  sap?: {
+    current_index: number;
+    total: number;
+    current_subtask: { id: number; instruction: string; done_condition: string } | null;
+    is_complete: boolean;
+  } | null;
 }
 
 interface HealthInfo {
@@ -33,6 +40,10 @@ export function InferenceControl({ serverUrl }: Props) {
   const [instruction, setInstruction] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
   const [serverReachable, setServerReachable] = useState(false);
+  const [kiroStatus, setKiroStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [kiroLatency, setKiroLatency] = useState<number | null>(null);
+
+  const KIRO_API_URL = "http://10.16.115.153:8990";
 
   // Use proxy path to avoid CORS issues
   const apiBase = "/inference";
@@ -134,6 +145,41 @@ export function InferenceControl({ serverUrl }: Props) {
       message.error(`恢复失败: ${e.message}`);
     } finally {
       setLoading(null);
+    }
+  };
+
+  const testKiroApi = async () => {
+    setKiroStatus("testing");
+    setKiroLatency(null);
+    const start = performance.now();
+    try {
+      const resp = await fetch(`${KIRO_API_URL}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": "sk-kiro-rs-qazWSXedcRFV123456",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 16,
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      const elapsed = Math.round(performance.now() - start);
+      setKiroLatency(elapsed);
+      if (resp.ok) {
+        setKiroStatus("ok");
+        message.success(`Kiro API 正常 (${elapsed}ms)`);
+      } else {
+        const err = await resp.text();
+        setKiroStatus("fail");
+        message.error(`Kiro API 返回 ${resp.status}: ${err.slice(0, 100)}`);
+      }
+    } catch (e: any) {
+      setKiroLatency(Math.round(performance.now() - start));
+      setKiroStatus("fail");
+      message.error(`Kiro API 不可达: ${e.message}`);
     }
   };
 
@@ -270,7 +316,43 @@ export function InferenceControl({ serverUrl }: Props) {
               恢复推理
             </Button>
           </Space>
+
+          {/* SAP Status */}
+          {state?.sap && (
+            <Alert
+              type={state.sap.is_complete ? "success" : "info"}
+              showIcon
+              message={
+                state.sap.is_complete
+                  ? "任务分解已完成"
+                  : `子任务 ${state.sap.current_index + 1}/${state.sap.total}`
+              }
+              description={state.sap.current_subtask?.instruction}
+              style={{ marginTop: 8 }}
+            />
+          )}
         </Space>
+      </Card>
+
+      {/* Kiro API Test */}
+      <Card size="small" title={<Space><ApiOutlined /> Kiro VLM API</Space>}>
+        <Space>
+          <Button
+            onClick={testKiroApi}
+            loading={kiroStatus === "testing"}
+          >
+            Test Kiro API
+          </Button>
+          {kiroStatus === "ok" && (
+            <Tag color="success">OK{kiroLatency ? ` (${kiroLatency}ms)` : ""}</Tag>
+          )}
+          {kiroStatus === "fail" && (
+            <Tag color="error">FAIL{kiroLatency ? ` (${kiroLatency}ms)` : ""}</Tag>
+          )}
+        </Space>
+        <div style={{ marginTop: 4, fontSize: 11, color: "#666" }}>
+          直连 {KIRO_API_URL}（不走代理）
+        </div>
       </Card>
     </Space>
   );

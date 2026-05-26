@@ -4,6 +4,7 @@ Provides HTTP API for remote NaVILA inference + web visualization dashboard.
 Designed to run on a GPU server while the robot calls the API over LAN.
 """
 
+import asyncio
 import base64
 import io
 import sys
@@ -29,6 +30,9 @@ all_history = []  # unbounded, persisted to disk
 current_instruction = "navigate to the goal"
 inference_paused = False
 sap_controller = None  # SAP Planner-Executor-Verifier controller
+last_infer_time: float = 0.0  # timestamp of last /infer call
+AUTO_PLAN_GAP = 30.0  # seconds of inactivity before auto-plan on next infer
+_infer_lock = asyncio.Lock()  # serialize infer requests so SAP state is consistent
 
 
 @asynccontextmanager
@@ -130,7 +134,19 @@ async def health():
 
 @app.get("/state")
 async def get_state():
-    return {"instruction": current_instruction, "paused": inference_paused}
+    sap_info = None
+    if sap_controller and sap_controller.active:
+        sap_info = {
+            "current_index": sap_controller.current_index,
+            "total": len(sap_controller.subtasks),
+            "current_subtask": sap_controller.current_subtask,
+            "is_complete": sap_controller.is_complete,
+        }
+    return {
+        "instruction": current_instruction,
+        "paused": inference_paused,
+        "sap": sap_info,
+    }
 
 
 @app.post("/set_instruction")
@@ -166,7 +182,7 @@ async def plan(req: PlanRequest):
 
     current_instruction = req.instruction
     sap_controller = SAPController(verify_interval=3, max_retries=3)
-    sap_controller.start(req.instruction, req.initial_frame)
+    await asyncio.to_thread(sap_controller.start, req.instruction, req.initial_frame)
 
     return {
         "active": sap_controller.active,
@@ -235,7 +251,7 @@ async def sap_log():
 
 @app.post("/infer", response_model=InferResponse)
 async def infer(request: InferRequest):
-    global sap_controller
+    global sap_controller, last_infer_time
 
     if inference_paused:
         raise HTTPException(status_code=503, detail="Inference paused")
@@ -244,79 +260,96 @@ async def infer(request: InferRequest):
     if not request.frames:
         raise HTTPException(status_code=400, detail="No frames provided")
 
-    # SAP: use subtask instruction if active
-    if sap_controller and sap_controller.active and not sap_controller.is_complete:
-        instruction = sap_controller.current_instruction
-    else:
-        instruction = current_instruction or request.instruction
+    async with _infer_lock:
+        now = time.time()
+        gap = now - last_infer_time if last_infer_time > 0 else float("inf")
+        last_infer_time = now
 
-    if not instruction:
-        raise HTTPException(status_code=400, detail="No instruction provided")
+        # Auto-plan: if gap exceeds threshold and SAP not active, trigger plan decomposition
+        if gap > AUTO_PLAN_GAP and not (sap_controller and sap_controller.active and not sap_controller.is_complete):
+            instruction_for_plan = current_instruction or request.instruction
+            if instruction_for_plan:
+                from server.planner import SAPController
+                initial_frame = request.frames[-1] if request.frames else None
+                sap_controller = SAPController(verify_interval=3, max_retries=3)
+                try:
+                    await asyncio.to_thread(sap_controller.start, instruction_for_plan, initial_frame)
+                    print(f"[SAP] Auto-plan triggered (gap={gap:.1f}s): {len(sap_controller.subtasks)} subtasks")
+                except Exception as e:
+                    print(f"[SAP] Auto-plan failed: {e}, falling back to direct inference")
+                    sap_controller = None
 
-    pil_frames = []
-    for i, b64_frame in enumerate(request.frames):
-        try:
-            img_bytes = base64.b64decode(b64_frame)
-            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            pil_frames.append(img)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to decode frame {i}: {e}")
-
-    # SAP: check if verifier says stop
-    sap_result = None
-    if sap_controller and sap_controller.active and not sap_controller.is_complete:
-        last_frame = request.frames[-1] if request.frames else None
-        recent = [last_frame] if last_frame else []
-        sap_result = sap_controller.step(recent)
-
-        if sap_result["action"] == "complete":
-            return InferResponse(
-                raw_output="Task complete.", action="stop",
-                distance_cm=0, degree=0, latency_ms=0.0,
-            )
-        elif sap_result["action"] == "stop":
-            return InferResponse(
-                raw_output=f"Stopped: {sap_result['verify']['reason']}",
-                action="stop", distance_cm=0, degree=0, latency_ms=0.0,
-            )
-        elif sap_result["action"] in ("next", "replan"):
+        if sap_controller and sap_controller.active and not sap_controller.is_complete:
             instruction = sap_controller.current_instruction
+        else:
+            instruction = current_instruction or request.instruction
 
-    try:
-        result = engine.infer(pil_frames, instruction)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
+        if not instruction:
+            raise HTTPException(status_code=400, detail="No instruction provided")
 
-    if sap_controller and sap_controller.active:
-        last_frame_b64 = request.frames[-1] if request.frames else ""
-        sap_controller.record_action(result["raw_output"], last_frame_b64)
+        pil_frames = []
+        for i, b64_frame in enumerate(request.frames):
+            try:
+                img_bytes = base64.b64decode(b64_frame)
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                pil_frames.append(img)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to decode frame {i}: {e}")
 
-    log_dir = _save_inference_log(request.frames, instruction, result)
+        sap_result = None
+        if sap_controller and sap_controller.active and not sap_controller.is_complete:
+            last_frame = request.frames[-1] if request.frames else None
+            recent = [last_frame] if last_frame else []
+            sap_result = await asyncio.to_thread(sap_controller.step, recent)
 
-    inference_history.append({
-        "timestamp": time.time(),
-        "instruction": instruction,
-        "num_frames": len(pil_frames),
-        "result": result,
-        "frames_b64": request.frames,
-        "log_dir": log_dir,
-    })
-    all_history.append({
-        "timestamp": time.time(),
-        "instruction": instruction,
-        "num_frames": len(pil_frames),
-        "result": result,
-        "frames_b64": request.frames,
-        "log_dir": log_dir,
-    })
+            if sap_result["action"] == "complete":
+                return InferResponse(
+                    raw_output="Task complete.", action="stop",
+                    distance_cm=0, degree=0, latency_ms=0.0,
+                )
+            elif sap_result["action"] == "stop":
+                return InferResponse(
+                    raw_output=f"Stopped: {sap_result['verify']['reason']}",
+                    action="stop", distance_cm=0, degree=0, latency_ms=0.0,
+                )
+            elif sap_result["action"] in ("next", "replan"):
+                instruction = sap_controller.current_instruction
 
-    return InferResponse(
-        raw_output=result["raw_output"],
-        action=result["action"],
-        distance_cm=result["distance_cm"],
-        degree=result["degree"],
-        latency_ms=result["latency_ms"],
-    )
+        try:
+            result = engine.infer(pil_frames, instruction)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
+
+        if sap_controller and sap_controller.active:
+            last_frame_b64 = request.frames[-1] if request.frames else ""
+            sap_controller.record_action(result["raw_output"], last_frame_b64)
+
+        log_dir = _save_inference_log(request.frames, instruction, result)
+
+        inference_history.append({
+            "timestamp": time.time(),
+            "instruction": instruction,
+            "num_frames": len(pil_frames),
+            "result": result,
+            "frames_b64": request.frames,
+            "log_dir": log_dir,
+        })
+        all_history.append({
+            "timestamp": time.time(),
+            "instruction": instruction,
+            "num_frames": len(pil_frames),
+            "result": result,
+            "frames_b64": request.frames,
+            "log_dir": log_dir,
+        })
+
+        return InferResponse(
+            raw_output=result["raw_output"],
+            action=result["action"],
+            distance_cm=result["distance_cm"],
+            degree=result["degree"],
+            latency_ms=result["latency_ms"],
+        )
 
 
 @app.get("/history")

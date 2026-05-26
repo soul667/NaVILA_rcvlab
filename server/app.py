@@ -28,6 +28,7 @@ inference_history = deque(maxlen=MAX_HISTORY)
 all_history = []  # unbounded, persisted to disk
 current_instruction = "navigate to the goal"
 inference_paused = False
+sap_controller = None  # SAP Planner-Executor-Verifier controller
 
 
 @asynccontextmanager
@@ -153,8 +154,89 @@ async def resume():
     return {"paused": False}
 
 
+class PlanRequest(BaseModel):
+    instruction: str
+    initial_frame: Optional[str] = None
+
+
+@app.post("/plan")
+async def plan(req: PlanRequest):
+    global sap_controller, current_instruction
+    from server.planner import SAPController
+
+    current_instruction = req.instruction
+    sap_controller = SAPController(verify_interval=3, max_retries=3)
+    sap_controller.start(req.instruction, req.initial_frame)
+
+    return {
+        "active": sap_controller.active,
+        "subtasks": sap_controller.subtasks,
+        "current_subtask": sap_controller.current_subtask,
+    }
+
+
+@app.post("/plan_stop")
+async def plan_stop():
+    global sap_controller
+    if sap_controller:
+        sap_controller.active = False
+    return {"active": False}
+
+
+@app.get("/sap_status")
+async def sap_status():
+    if sap_controller:
+        return sap_controller.get_status()
+    return {"active": False, "subtasks": [], "current_index": 0}
+
+
+@app.get("/sap_log")
+async def sap_log():
+    if not sap_controller:
+        return {"active": False, "subtasks": [], "steps": [], "status": {}}
+    status = sap_controller.get_status()
+    steps = []
+    for entry in sap_controller.memory:
+        if entry["type"] == "action":
+            steps.append({
+                "type": "action",
+                "step": entry["step"],
+                "subtask_id": entry["subtask_id"],
+                "action": entry["action"],
+                "instruction": sap_controller.subtasks[entry["subtask_id"] - 1]["instruction"] if entry["subtask_id"] <= len(sap_controller.subtasks) else "",
+                "frame_b64": entry.get("frame_b64", ""),
+            })
+        elif entry["type"] == "verify":
+            steps.append({
+                "type": "verify",
+                "step": entry["step"],
+                "subtask_id": entry["subtask_id"],
+                "status": entry["status"],
+                "reason": entry["reason"],
+            })
+        elif entry["type"] == "replan":
+            steps.append({
+                "type": "replan",
+                "step": entry["step"],
+                "subtask_id": entry["subtask_id"],
+                "old_instruction": entry["old_instruction"],
+                "new_instruction": entry["new_instruction"],
+                "reason": entry["reason"],
+            })
+    return {
+        "active": status["active"],
+        "subtasks": status["subtasks"],
+        "current_index": status["current_index"],
+        "is_complete": status["is_complete"],
+        "last_verify": status["last_verify"],
+        "steps": steps,
+    }
+
+
 @app.post("/infer", response_model=InferResponse)
 async def infer(request: InferRequest):
+    global sap_controller
+
     if inference_paused:
         raise HTTPException(status_code=503, detail="Inference paused")
     if engine is None or not engine.is_loaded:
@@ -162,7 +244,12 @@ async def infer(request: InferRequest):
     if not request.frames:
         raise HTTPException(status_code=400, detail="No frames provided")
 
-    instruction = current_instruction or request.instruction
+    # SAP: use subtask instruction if active
+    if sap_controller and sap_controller.active and not sap_controller.is_complete:
+        instruction = sap_controller.current_instruction
+    else:
+        instruction = current_instruction or request.instruction
+
     if not instruction:
         raise HTTPException(status_code=400, detail="No instruction provided")
 
@@ -175,10 +262,36 @@ async def infer(request: InferRequest):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to decode frame {i}: {e}")
 
+    # SAP: check if verifier says stop
+    sap_result = None
+    if sap_controller and sap_controller.active and not sap_controller.is_complete:
+        last_frame = request.frames[-1] if request.frames else None
+        recent = [last_frame] if last_frame else []
+        sap_result = sap_controller.step(recent)
+
+        if sap_result["action"] == "complete":
+            return InferResponse(
+                raw_output="Task complete.", action="stop",
+                distance_cm=0, degree=0, latency_ms=0.0,
+            )
+        elif sap_result["action"] == "stop":
+            return InferResponse(
+                raw_output=f"Stopped: {sap_result['verify']['reason']}",
+                action="stop", distance_cm=0, degree=0, latency_ms=0.0,
+            )
+        elif sap_result["action"] in ("next", "replan"):
+            instruction = sap_controller.current_instruction
+
     try:
         result = engine.infer(pil_frames, instruction)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
+
+    if sap_controller and sap_controller.active:
+        last_frame_b64 = request.frames[-1] if request.frames else ""
+        sap_controller.record_action(result["raw_output"], last_frame_b64)
+
+    log_dir = _save_inference_log(request.frames, instruction, result)
 
     inference_history.append({
         "timestamp": time.time(),
@@ -186,6 +299,7 @@ async def infer(request: InferRequest):
         "num_frames": len(pil_frames),
         "result": result,
         "frames_b64": request.frames,
+        "log_dir": log_dir,
     })
     all_history.append({
         "timestamp": time.time(),
@@ -193,9 +307,8 @@ async def infer(request: InferRequest):
         "num_frames": len(pil_frames),
         "result": result,
         "frames_b64": request.frames,
+        "log_dir": log_dir,
     })
-
-    _save_inference_log(request.frames, instruction, result)
 
     return InferResponse(
         raw_output=result["raw_output"],
@@ -246,7 +359,7 @@ def _group_sessions(history, gap_threshold=10.0):
     return sessions
 
 
-def _save_inference_log(frames_b64: list, instruction: str, result: dict):
+def _save_inference_log(frames_b64: list, instruction: str, result: dict) -> str:
     import json
     from datetime import datetime
 
@@ -265,6 +378,7 @@ def _save_inference_log(frames_b64: list, instruction: str, result: dict):
         "result": result,
     }
     (log_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+    return str(log_dir)
 
 
 def _load_history_from_disk():
@@ -296,6 +410,7 @@ def _load_history_from_disk():
                 "num_frames": meta["num_frames"],
                 "result": meta["result"],
                 "frames_b64": frames_b64,
+                "log_dir": str(d),
             }
             all_history.append(entry)
         except Exception as e:

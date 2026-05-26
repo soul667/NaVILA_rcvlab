@@ -30,6 +30,7 @@ model = None
 tokenizer = None
 image_processor = None
 model_loaded = False
+sap_controller = None
 
 
 class InferenceRequest(BaseModel):
@@ -94,16 +95,53 @@ def get_status():
 
 @app.post("/infer", response_model=InferenceResponse)
 def infer(req: InferenceRequest):
+    global sap_controller
+
     if not model_loaded:
         raise HTTPException(status_code=503, detail="Model not loaded yet")
 
     start_time = time.time()
+
+    # SAP: auto-start on first infer or instruction change
+    if sap_controller is None or (sap_controller.active and sap_controller.current_instruction and req.instruction != sap_controller._original_instruction):
+        from planner import SAPController
+        sap_controller = SAPController(verify_interval=3, max_retries=3)
+        initial_frame = req.frames[-1] if req.frames else None
+        sap_controller.start(req.instruction, initial_frame)
+
+    # SAP: use subtask instruction if active
+    if sap_controller and sap_controller.active and not sap_controller.is_complete:
+        instruction = sap_controller.current_instruction
+    else:
+        instruction = req.instruction
 
     # Decode base64 frames to PIL images
     pil_frames = []
     for frame_b64 in req.frames:
         img_bytes = base64.b64decode(frame_b64)
         pil_frames.append(PILImage.open(io.BytesIO(img_bytes)).convert("RGB"))
+
+    # SAP: check verifier before executing
+    sap_result = None
+    if sap_controller and sap_controller.active and not sap_controller.is_complete:
+        last_frame = req.frames[-1] if req.frames else ""
+        sap_result = sap_controller.step([last_frame] if last_frame else [])
+
+        if sap_result["action"] == "complete":
+            return InferenceResponse(
+                command="stop", linear_velocity=0.0, angular_velocity=0.0,
+                confidence=1.0, reasoning="SAP: Task complete.",
+                goal_reached=True, latency_ms=0.0,
+            )
+        elif sap_result["action"] == "stop":
+            reason = sap_result["verify"]["reason"] if sap_result.get("verify") else "stopped"
+            return InferenceResponse(
+                command="stop", linear_velocity=0.0, angular_velocity=0.0,
+                confidence=1.0, reasoning=f"SAP stopped: {reason}",
+                goal_reached=False, latency_ms=0.0,
+            )
+        elif sap_result["action"] in ("next", "replan"):
+            instruction = sap_controller.current_instruction
 
     # Sample and pad to num_frames
     pil_frames = sample_and_pad_images(pil_frames, num_frames=req.num_frames)
@@ -113,7 +151,7 @@ def infer(req: InferenceRequest):
     interleaved_images = "<image>\n" * (len(pil_frames) - 1)
     question = (
         f"Imagine you are a robot programmed for navigation tasks. You have been given a video "
-        f'of historical observations {interleaved_images}, and current observation <image>\n. Your assigned task is: "{req.instruction}" '
+        f'of historical observations {interleaved_images}, and current observation <image>\n. Your assigned task is: "{instruction}" '
         f"Analyze this series of images to decide your next action, which could be turning left or right by a specific "
         f"degree, moving forward a certain distance, or stop if the task is completed."
     )
@@ -156,6 +194,11 @@ def infer(req: InferenceRequest):
         outputs = outputs[: -len(stop_str)].strip()
 
     latency_ms = (time.time() - start_time) * 1000
+
+    # Record action in SAP memory
+    if sap_controller and sap_controller.active:
+        last_frame_b64 = req.frames[-1] if req.frames else ""
+        sap_controller.record_action(outputs, last_frame_b64)
 
     # Parse action
     result = parse_action(outputs)
@@ -217,4 +260,83 @@ def parse_action(text: str) -> dict:
         "confidence": 0.8 if action != "stop" else 0.9,
         "reasoning": text,
         "goal_reached": action == "stop",
+    }
+
+
+# === SAP API ===
+
+class PlanRequest(BaseModel):
+    instruction: str
+    initial_frame: Optional[str] = None
+
+
+@app.post("/plan")
+def start_plan(req: PlanRequest):
+    global sap_controller
+    from planner import SAPController
+
+    sap_controller = SAPController(verify_interval=3, max_retries=3)
+    sap_controller.start(req.instruction, req.initial_frame)
+    return {
+        "active": sap_controller.active,
+        "subtasks": sap_controller.subtasks,
+        "current_subtask": sap_controller.current_subtask,
+    }
+
+
+@app.post("/plan_stop")
+def stop_plan():
+    global sap_controller
+    if sap_controller:
+        sap_controller.active = False
+    return {"active": False}
+
+
+@app.get("/sap_status")
+def sap_status():
+    if sap_controller:
+        return sap_controller.get_status()
+    return {"active": False, "subtasks": [], "current_index": 0}
+
+
+@app.get("/sap_log")
+def sap_log():
+    if not sap_controller:
+        return {"active": False, "subtasks": [], "steps": []}
+    status = sap_controller.get_status()
+    steps = []
+    for entry in sap_controller.memory:
+        if entry["type"] == "action":
+            steps.append({
+                "type": "action",
+                "step": entry["step"],
+                "subtask_id": entry["subtask_id"],
+                "action": entry["action"],
+                "instruction": sap_controller.subtasks[entry["subtask_id"] - 1]["instruction"] if entry["subtask_id"] <= len(sap_controller.subtasks) else "",
+                "frame_b64": entry.get("frame_b64", ""),
+            })
+        elif entry["type"] == "verify":
+            steps.append({
+                "type": "verify",
+                "step": entry["step"],
+                "subtask_id": entry["subtask_id"],
+                "status": entry["status"],
+                "reason": entry["reason"],
+            })
+        elif entry["type"] == "replan":
+            steps.append({
+                "type": "replan",
+                "step": entry["step"],
+                "subtask_id": entry["subtask_id"],
+                "old_instruction": entry["old_instruction"],
+                "new_instruction": entry["new_instruction"],
+                "reason": entry["reason"],
+            })
+    return {
+        "active": status["active"],
+        "subtasks": status["subtasks"],
+        "current_index": status["current_index"],
+        "is_complete": status["is_complete"],
+        "last_verify": status["last_verify"],
+        "steps": steps,
     }
